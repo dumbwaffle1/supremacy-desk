@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { query } from "./_generated/server";
 import { getAuthUserId } from "@convex-dev/auth/server";
-import { offerFor, stakeForStage } from "./lib/game";
+import { offerFor, round2, stakeForStage } from "./lib/game";
 import { makerWindowOpen, takerWindowOpen } from "./lib/trading";
 import { ADMIN_EMAIL } from "../src/config/constants";
 
@@ -99,6 +99,12 @@ export const detail = query({
       offer,
       stake,
       defaultedMaker: game.defaultedMaker ?? false,
+      // Maker is counterparty to everyone: makerPnl = −sum(taker pnl). Only
+      // meaningful once settled (before that they haven't traded anything).
+      makerPnl:
+        game.status === "SETTLED" && game.makerPlayer
+          ? round2(-trades.reduce((s, t) => s + (t.pnl ?? 0), 0))
+          : null,
       settleHome: game.settleHome ?? null,
       settleAway: game.settleAway ?? null,
       liveHome: game.liveHome ?? null,

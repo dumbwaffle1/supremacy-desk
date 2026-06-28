@@ -93,7 +93,7 @@ export function GameDetail({ gameId }: { gameId: string }) {
         </div>
       )}
 
-      {d.book.length > 0 && (
+      {(d.book.length > 0 || d.makerPnl !== null) && (
         <div className="panel overflow-hidden rounded-2xl">
           <div className="flex items-center justify-between px-4 pt-4">
             <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -102,6 +102,22 @@ export function GameDetail({ gameId }: { gameId: string }) {
             <span className="text-[11px] text-muted-foreground">on {d.quoteTeamName}</span>
           </div>
           <ul className="mt-2 divide-y divide-border">
+            {d.makerPnl !== null && d.makerPlayer && (
+              <li className="flex items-center justify-between px-4 py-2.5 text-sm">
+                <span className="flex items-center gap-2">
+                  <span className="size-2.5 rounded-full" style={{ backgroundColor: colorFor(d.makerPlayer) }} />
+                  {d.makerPlayer}
+                  <span className="text-[10px] text-muted-foreground">(maker)</span>
+                </span>
+                <span
+                  className={`tnum w-16 text-right text-sm font-semibold ${
+                    d.makerPnl > 0 ? "text-up" : d.makerPnl < 0 ? "text-down" : "text-muted-foreground"
+                  }`}
+                >
+                  {d.makerPnl > 0 ? "+" : d.makerPnl < 0 ? "−" : ""}£{Math.abs(d.makerPnl)}
+                </span>
+              </li>
+            )}
             {d.book.map((t) => (
               <li key={t.player} className="flex items-center justify-between px-4 py-2.5 text-sm">
                 <span className="flex items-center gap-2">
