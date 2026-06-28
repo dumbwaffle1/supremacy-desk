@@ -29,11 +29,11 @@ export function SignIn() {
     setStatus("sending");
     setError(null);
     try {
-      // Send the magic link back to wherever we are (localhost or the live
-      // domain), not the deployment's SITE_URL — see auth.ts redirect callback.
+      // Send the magic link back to the exact page we're on (e.g. /join/<code>),
+      // so deep links survive sign-in — see auth.ts redirect callback.
       await signIn("resend", {
         email: email.trim(),
-        redirectTo: window.location.origin,
+        redirectTo: window.location.origin + window.location.pathname,
       });
       setStatus("sent");
     } catch (err) {
