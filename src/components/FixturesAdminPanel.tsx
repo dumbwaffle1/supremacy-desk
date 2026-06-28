@@ -55,7 +55,7 @@ export function FixturesAdminPanel() {
           <p className="mt-0.5 text-xs text-muted-foreground">
             {games === undefined
               ? "Loading…"
-              : `${total} games synced from API-Football`}
+              : `${total} games synced from football-data.org`}
           </p>
         </div>
         <Button size="sm" onClick={run} disabled={busy} className="font-medium">

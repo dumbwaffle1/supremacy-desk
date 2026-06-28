@@ -6,15 +6,14 @@ import {
   query,
 } from "./_generated/server";
 import { api, internal } from "./_generated/api";
-import { getAuthUserId } from "@convex-dev/auth/server";
 import { stageValidator } from "./schema";
 import type { Stage } from "../src/config/constants";
 
-const API_BASE = "https://v3.football.api-sports.io";
-const LEAGUE = 1; // FIFA World Cup
-const SEASON = 2026;
+// football-data.org v4 — free tier includes the FIFA World Cup ("WC").
+// Auth header: X-Auth-Token. Set with: npx convex env set FOOTBALL_DATA_KEY <key>
+const API_BASE = "https://api.football-data.org/v4";
+const COMPETITION = "WC"; // FIFA World Cup
 
-// Stage ordering used to assign a stable, global gameNo.
 const STAGE_ORDER: Record<Stage, number> = {
   R32: 0,
   R16: 1,
@@ -24,26 +23,54 @@ const STAGE_ORDER: Record<Stage, number> = {
   F: 5,
 };
 
-/** Map an API-Football `league.round` string to our stage, or null to skip
- *  (group stage / unknown). Matched loosely so minor wording changes still work. */
-export function roundToStage(round: string): Stage | null {
-  const r = round.toLowerCase();
-  if (r.includes("round of 32") || r.includes("1/16")) return "R32";
-  if (r.includes("round of 16") || r.includes("1/8")) return "R16";
-  if (r.includes("quarter")) return "QF";
-  if (r.includes("semi")) return "SF";
-  if (r.includes("3rd") || r.includes("third") || r.includes("play-off for third"))
-    return "3PO";
-  if (r.trim() === "final" || r.endsWith(" final")) return "F";
+/** Map football-data.org `stage` enum to our stage; null = group stage / skip. */
+export function fdStageToStage(stage: string): Stage | null {
+  const s = (stage ?? "").toUpperCase();
+  if (s.includes("LAST_32") || s.includes("32")) return "R32";
+  if (s.includes("LAST_16") || s.includes("16")) return "R16";
+  if (s.includes("QUARTER")) return "QF";
+  if (s.includes("SEMI")) return "SF";
+  if (s.includes("THIRD")) return "3PO";
+  if (s === "FINAL") return "F";
   return null;
 }
 
-/** API-Football status.short -> our stored Game.status. */
-function mapStatus(short: string): "SCHEDULED" | "LIVE" | "FT" {
-  if (["1H", "HT", "2H", "ET", "BT", "P", "LIVE", "INT", "SUSP"].includes(short))
-    return "LIVE";
-  if (["FT", "AET", "PEN"].includes(short)) return "FT";
-  return "SCHEDULED"; // NS, TBD, PST, CANC, ABD, WO, AWD, …
+/** football-data.org status -> our stored Game.status. */
+function mapStatus(status: string): "SCHEDULED" | "LIVE" | "FT" {
+  if (["IN_PLAY", "PAUSED"].includes(status)) return "LIVE";
+  if (["FINISHED", "AWARDED"].includes(status)) return "FT";
+  return "SCHEDULED"; // SCHEDULED, TIMED, POSTPONED, SUSPENDED, CANCELLED
+}
+
+type FdScore = {
+  duration?: string; // REGULAR | EXTRA_TIME | PENALTY_SHOOTOUT
+  fullTime?: { home: number | null; away: number | null };
+  regularTime?: { home: number | null; away: number | null } | null;
+  extraTime?: { home: number | null; away: number | null } | null;
+};
+
+/**
+ * Settlement score = score after extra time, EXCLUDING penalties (spec §3).
+ * football-data's `fullTime` INCLUDES the shootout (e.g. 7-6), so for a
+ * PENALTY_SHOOTOUT we use regularTime + extraTime (the 120' draw). Returns null
+ * if the score isn't available yet. Exported for the settlement cron (Prompt 7).
+ */
+export function settlementScore(
+  score: FdScore | undefined,
+): { home: number; away: number } | null {
+  if (!score) return null;
+  if (score.duration === "PENALTY_SHOOTOUT") {
+    const reg = score.regularTime;
+    const et = score.extraTime;
+    return {
+      home: (reg?.home ?? 0) + (et?.home ?? 0),
+      away: (reg?.away ?? 0) + (et?.away ?? 0),
+    };
+  }
+  // REGULAR or EXTRA_TIME: fullTime is already the post-ET score (no pens).
+  const ft = score.fullTime;
+  if (ft?.home == null || ft?.away == null) return null;
+  return { home: ft.home, away: ft.away };
 }
 
 const fixtureValidator = v.object({
@@ -99,7 +126,6 @@ export const upsertFromApi = internalMutation({
           away: f.away,
           koUtc: f.koUtc,
         };
-        // Don't downgrade a game we've already settled/voided.
         await ctx.db.patch(
           ex._id,
           ex.status === "SETTLED" || ex.status === "VOID"
@@ -126,7 +152,7 @@ export const upsertFromApi = internalMutation({
           koUtc: f.koUtc,
           status,
         });
-        ph.fixtureId = f.fixtureId; // so it isn't adopted twice this run
+        ph.fixtureId = f.fixtureId;
         adopted++;
         continue;
       }
@@ -148,28 +174,26 @@ export const upsertFromApi = internalMutation({
   },
 });
 
-/** Fetch the knockout fixture list and upsert. Run by cron + admin button. */
+/** Fetch the WC knockout fixtures and upsert. Run by cron + admin button. */
 export const sync = internalAction({
   args: {},
   handler: async (ctx): Promise<Record<string, unknown>> => {
-    const key = process.env.API_FOOTBALL_KEY;
+    const key = process.env.FOOTBALL_DATA_KEY;
     if (!key) {
       console.error(
-        "[fixtures] API_FOOTBALL_KEY not set. Run: npx convex env set API_FOOTBALL_KEY <key>",
+        "[fixtures] FOOTBALL_DATA_KEY not set. Run: npx convex env set FOOTBALL_DATA_KEY <key>",
       );
-      return { ok: false, error: "API_FOOTBALL_KEY not set" };
+      return { ok: false, error: "FOOTBALL_DATA_KEY not set" };
     }
 
-    const url = `${API_BASE}/fixtures?league=${LEAGUE}&season=${SEASON}`;
-    const res = await fetch(url, { headers: { "x-apisports-key": key } });
+    const res = await fetch(`${API_BASE}/competitions/${COMPETITION}/matches`, {
+      headers: { "X-Auth-Token": key },
+    });
 
-    // Always surface quota so usage can be watched in the logs.
     console.log(
-      `[fixtures] quota — day ${res.headers.get(
-        "x-ratelimit-requests-remaining",
-      )}/${res.headers.get("x-ratelimit-requests-limit")} left · minute ${res.headers.get(
-        "X-RateLimit-Remaining",
-      )}/${res.headers.get("X-RateLimit-Limit")} left`,
+      `[fixtures] quota — ${res.headers.get(
+        "X-Requests-Available-Minute",
+      )} req/min remaining (resets in ${res.headers.get("X-RequestCounter-Reset")}s)`,
     );
 
     if (!res.ok) {
@@ -178,42 +202,33 @@ export const sync = internalAction({
     }
 
     const json = (await res.json()) as {
-      errors?: unknown;
-      results?: number;
-      response?: Array<{
-        fixture: { id: number; date: string; status: { short: string } };
-        teams: { home?: { name?: string }; away?: { name?: string } };
-        league: { round: string };
+      matches?: Array<{
+        id: number;
+        utcDate: string;
+        status: string;
+        stage: string;
+        homeTeam?: { name?: string | null; shortName?: string | null };
+        awayTeam?: { name?: string | null; shortName?: string | null };
       }>;
     };
 
-    const errs = json.errors;
-    const hasErrors = Array.isArray(errs)
-      ? errs.length > 0
-      : errs && typeof errs === "object" && Object.keys(errs).length > 0;
-    if (hasErrors) {
-      console.error(`[fixtures] API errors: ${JSON.stringify(errs)}`);
-      return { ok: false, error: "api errors", details: errs };
-    }
-
-    const items = json.response ?? [];
-    const skippedRounds = new Set<string>();
+    const matches = json.matches ?? [];
+    const skippedStages = new Set<string>();
     const fixtures = [];
-    for (const it of items) {
-      const round = it.league?.round ?? "";
-      const stage = roundToStage(round);
+    for (const m of matches) {
+      const stage = fdStageToStage(m.stage);
       if (!stage) {
-        skippedRounds.add(round);
+        skippedStages.add(m.stage);
         continue;
       }
       fixtures.push({
-        fixtureId: it.fixture.id,
-        round,
+        fixtureId: m.id,
+        round: m.stage,
         stage,
-        home: it.teams?.home?.name ?? undefined,
-        away: it.teams?.away?.name ?? undefined,
-        koUtc: it.fixture?.date ? Date.parse(it.fixture.date) : undefined,
-        statusShort: it.fixture?.status?.short ?? "NS",
+        home: m.homeTeam?.name ?? m.homeTeam?.shortName ?? undefined,
+        away: m.awayTeam?.name ?? m.awayTeam?.shortName ?? undefined,
+        koUtc: m.utcDate ? Date.parse(m.utcDate) : undefined,
+        statusShort: m.status,
       });
     }
 
@@ -221,9 +236,9 @@ export const sync = internalAction({
       fixtures,
     });
     console.log(
-      `[fixtures] synced ${fixtures.length} knockout fixtures of ${items.length} returned ` +
+      `[fixtures] synced ${fixtures.length} knockout fixtures of ${matches.length} returned ` +
         `(created ${result.created}, updated ${result.updated}, adopted ${result.adopted}). ` +
-        `Skipped rounds: ${[...skippedRounds].join(", ") || "none"}`,
+        `Skipped stages: ${[...skippedStages].join(", ") || "none"}`,
     );
     return { ok: true, ...result };
   },
