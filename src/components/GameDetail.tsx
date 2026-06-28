@@ -14,6 +14,7 @@ import { useNow } from "@/lib/useNow";
 import { displayStatus, STATUS_STYLE, supremacy, koLabel } from "@/lib/gameDisplay";
 
 type Detail = NonNullable<FunctionReturnType<typeof api.games.detail>>;
+type QuoteTeam = "HOME" | "AWAY";
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -54,7 +55,19 @@ export function GameDetail({ gameId }: { gameId: string }) {
           <Team name={d.away ?? "TBD"} align="right" />
         </div>
 
-        <div className="mt-3 text-center text-xs text-muted-foreground">
+        {d.bid !== null && (
+          <div className="mt-3 text-center text-sm">
+            <span className="font-medium">{d.quoteTeamName}</span>{" "}
+            <span className="tnum text-muted-foreground">
+              {d.bid.toFixed(1)} / {d.offer?.toFixed(1)}
+            </span>
+            {d.defaultedMaker && (
+              <span className="ml-1 text-xs text-muted-foreground">(default)</span>
+            )}
+          </div>
+        )}
+
+        <div className="mt-2 text-center text-xs text-muted-foreground">
           {koLabel(d.koUtc)} · maker{" "}
           <span className="text-foreground">{d.makerPlayer ?? "—"}</span>
         </div>
@@ -81,9 +94,12 @@ export function GameDetail({ gameId }: { gameId: string }) {
 
       {d.book.length > 0 && (
         <div className="panel overflow-hidden rounded-2xl">
-          <h3 className="px-4 pt-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            The book
-          </h3>
+          <div className="flex items-center justify-between px-4 pt-4">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              The book
+            </h3>
+            <span className="text-[11px] text-muted-foreground">on {d.quoteTeamName}</span>
+          </div>
           <ul className="mt-2 divide-y divide-border">
             {d.book.map((t) => (
               <li key={t.player} className="flex items-center justify-between px-4 py-2.5 text-sm">
@@ -164,7 +180,7 @@ function Info({ children }: { children: React.ReactNode }) {
   return <div className="panel rounded-2xl p-4 text-sm text-muted-foreground">{children}</div>;
 }
 
-/* ── rate input (team perspective + negatives) ────────────────────────── */
+/* ── rate input (pick a team, positive line) ──────────────────────────── */
 
 function RateInput({
   home,
@@ -175,29 +191,28 @@ function RateInput({
   home: string | null;
   away: string | null;
   submitLabel: string;
-  onSubmit: (homeBid: number) => Promise<void>;
+  onSubmit: (bid: number, quoteTeam: QuoteTeam) => Promise<void>;
 }) {
-  const [team, setTeam] = useState<"home" | "away">("home");
+  const [team, setTeam] = useState<QuoteTeam>("HOME");
   const [bidStr, setBidStr] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  const teamName = (t: "home" | "away") =>
-    t === "home" ? (home ?? "Home") : (away ?? "Away");
+  const teamName = (t: QuoteTeam) =>
+    t === "HOME" ? (home ?? "Home") : (away ?? "Away");
 
   const raw = bidStr === "" || bidStr === "-" ? null : Number(bidStr);
   const valid = raw !== null && Number.isFinite(raw);
-  const offerFrame = valid ? r2(raw + WIDTH) : null;
-  // Convert the chosen team's line to a home-supremacy bid (S = home − away).
-  const homeBid = valid ? (team === "home" ? r2(raw) : r2(-(raw + WIDTH))) : null;
-  const homeOffer = homeBid !== null ? r2(homeBid + WIDTH) : null;
+  const bid = valid ? r2(raw) : null;
+  const offer = bid !== null ? r2(bid + WIDTH) : null;
+  const flat = bid !== null && Math.abs(bid + WIDTH / 2) < 1e-9;
 
   const submit = async () => {
-    if (homeBid === null) return;
+    if (bid === null) return;
     setBusy(true);
     setErr(null);
     try {
-      await onSubmit(homeBid);
+      await onSubmit(bid, team);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Failed.");
     } finally {
@@ -208,7 +223,7 @@ function RateInput({
   return (
     <div className="space-y-3">
       <div className="grid grid-cols-2 gap-1 rounded-lg bg-secondary p-1">
-        {(["home", "away"] as const).map((t) => (
+        {(["HOME", "AWAY"] as const).map((t) => (
           <button
             key={t}
             type="button"
@@ -217,7 +232,7 @@ function RateInput({
               team === t ? "bg-background text-foreground" : "text-muted-foreground"
             }`}
           >
-            {teamName(t)} over
+            {teamName(t)}
           </button>
         ))}
       </div>
@@ -227,31 +242,27 @@ function RateInput({
           type="number"
           step="0.1"
           inputMode="decimal"
-          placeholder="line, e.g. 1 or −0.1"
+          placeholder={`${teamName(team)} line, e.g. 1.3`}
           className="h-11"
           value={bidStr}
           onChange={(e) => setBidStr(e.target.value)}
         />
         <div className="tnum whitespace-nowrap rounded-lg bg-secondary px-3 py-2 text-sm text-muted-foreground">
-          / {offerFrame !== null ? offerFrame.toFixed(1) : "—"}
+          / {offer !== null ? offer.toFixed(1) : "—"}
         </div>
       </div>
 
-      {homeBid !== null && (
+      {bid !== null && (
         <p className="text-[11px] text-muted-foreground">
-          Home supremacy{" "}
+          <span className="text-foreground">{teamName(team)}</span>{" "}
           <span className="tnum text-foreground">
-            {homeBid.toFixed(1)} / {homeOffer!.toFixed(1)}
+            {bid.toFixed(1)} / {offer!.toFixed(1)}
           </span>
-          {homeBid + WIDTH / 2 === 0
-            ? " · flat — who's over doesn't matter"
-            : team === "away"
-              ? ` · ${teamName("away")} favoured`
-              : ""}
+          {flat && " · flat — pick either team"}
         </p>
       )}
 
-      <Button className="h-11 w-full font-semibold" disabled={busy || homeBid === null} onClick={submit}>
+      <Button className="h-11 w-full font-semibold" disabled={busy || bid === null} onClick={submit}>
         {busy ? "Saving…" : submitLabel}
       </Button>
       {err && <p className="text-sm text-destructive">{err}</p>}
@@ -270,7 +281,7 @@ function ActionCard({ detail: d }: { detail: Detail }) {
       </Info>
     );
   }
-  if (d.me.player === null) return null; // admin-only viewer uses admin controls
+  if (d.me.player === null) return null;
   return <TakerAction detail={d} />;
 }
 
@@ -288,9 +299,10 @@ function MakerAction({ detail: d }: { detail: Detail }) {
           <span className="flex items-center gap-2 text-sm">
             <Lock className="size-4 shrink-0 text-muted-foreground" />
             <span>
-              Your rate — bid <span className="tnum text-foreground">{d.bid!.toFixed(1)}</span> / offer{" "}
-              <span className="tnum text-foreground">{d.offer?.toFixed(1)}</span>
-              {d.defaultedMaker && <span className="text-muted-foreground"> (auto)</span>}
+              Your rate — <span className="font-medium">{d.quoteTeamName}</span>{" "}
+              <span className="tnum text-foreground">
+                {d.bid!.toFixed(1)} / {d.offer?.toFixed(1)}
+              </span>
             </span>
           </span>
           {canEdit && (
@@ -299,9 +311,7 @@ function MakerAction({ detail: d }: { detail: Detail }) {
             </Button>
           )}
         </div>
-        {d.hasTrades && (
-          <p className="mt-2 text-xs text-muted-foreground">Locked — someone has traded.</p>
-        )}
+        {d.hasTrades && <p className="mt-2 text-xs text-muted-foreground">Locked — someone has traded.</p>}
       </div>
     );
   }
@@ -318,16 +328,17 @@ function MakerAction({ detail: d }: { detail: Detail }) {
     <div className="panel rounded-2xl p-5">
       <h3 className="text-sm font-semibold">You&apos;re the maker</h3>
       <p className="mt-0.5 text-xs text-muted-foreground">
-        Quote a two-way price (width {WIDTH}). Pick which team you&apos;re quoting over;
-        negatives are fine (−0.1 / 0.1 = flat). Amendable until someone trades.
+        Pick the team you&apos;re quoting and enter their line (e.g. 1.3 → offer{" "}
+        {(1.3 + WIDTH).toFixed(1)}). Negatives fine for a pick&apos;em. Amendable until
+        someone trades.
       </p>
       <div className="mt-3">
         <RateInput
           home={d.home}
           away={d.away}
           submitLabel={hasRate ? "Update rate" : "Submit rate"}
-          onSubmit={async (homeBid) => {
-            await submitBid({ gameId: d._id, bid: homeBid });
+          onSubmit={async (bid, quoteTeam) => {
+            await submitBid({ gameId: d._id, bid, quoteTeam });
             setEditing(false);
           }}
         />
@@ -341,6 +352,7 @@ function TakerAction({ detail: d }: { detail: Detail }) {
   const [pending, setPending] = useState<"BUY" | "SELL" | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const team = d.quoteTeamName;
 
   if (d.me.trade) {
     const t = d.me.trade;
@@ -348,9 +360,9 @@ function TakerAction({ detail: d }: { detail: Detail }) {
       <Locked>
         Your position —{" "}
         <span className={t.side === "BUY" ? "text-up" : "text-down"}>
-          {t.side} @ {t.priceTaken.toFixed(1)}
+          {t.side} {team} @ {t.priceTaken.toFixed(1)}
         </span>
-        {t.forcedLong && <span className="text-muted-foreground"> (forced long)</span>}
+        {t.forcedLong && <span className="text-muted-foreground"> (forced)</span>}
         {t.pnl !== null && (
           <span className={`tnum ml-1 font-semibold ${t.pnl > 0 ? "text-up" : t.pnl < 0 ? "text-down" : ""}`}>
             · {t.pnl > 0 ? "+" : t.pnl < 0 ? "−" : ""}£{Math.abs(t.pnl)}
@@ -378,15 +390,15 @@ function TakerAction({ detail: d }: { detail: Detail }) {
 
   return (
     <div className="panel rounded-2xl p-5">
-      <h3 className="text-sm font-semibold">Trade</h3>
+      <h3 className="text-sm font-semibold">Trade {team}</h3>
       <p className="mt-0.5 text-xs text-muted-foreground">
-        BUY backs the home margin, SELL backs away. One action, then locked.
+        BUY backs {team} to beat the offer; SELL lays them at the bid. One action, then locked.
       </p>
 
       {pending ? (
         <div className="mt-3 space-y-2">
           <div className="rounded-lg bg-secondary p-3 text-center text-sm">
-            Confirm <span className={pending === "BUY" ? "text-up" : "text-down"}>{pending}</span> @{" "}
+            Confirm <span className={pending === "BUY" ? "text-up" : "text-down"}>{pending} {team}</span> @{" "}
             <span className="tnum">{price?.toFixed(1)}</span> · £{d.stake}/goal
           </div>
           <div className="flex gap-2">
@@ -401,11 +413,11 @@ function TakerAction({ detail: d }: { detail: Detail }) {
       ) : (
         <div className="mt-3 grid grid-cols-2 gap-2">
           <button onClick={() => setPending("BUY")} className="rounded-xl bg-up/15 py-3 text-center transition-colors hover:bg-up/25">
-            <div className="text-sm font-semibold text-up">BUY</div>
+            <div className="text-sm font-semibold text-up">BUY {team}</div>
             <div className="tnum text-xs text-muted-foreground">@ {d.offer?.toFixed(1)}</div>
           </button>
           <button onClick={() => setPending("SELL")} className="rounded-xl bg-down/15 py-3 text-center transition-colors hover:bg-down/25">
-            <div className="text-sm font-semibold text-down">SELL</div>
+            <div className="text-sm font-semibold text-down">SELL {team}</div>
             <div className="tnum text-xs text-muted-foreground">@ {d.bid.toFixed(1)}</div>
           </button>
         </div>
@@ -448,14 +460,17 @@ function AdminGameControls({ detail: d }: { detail: Detail }) {
           home={d.home}
           away={d.away}
           submitLabel="Set rate (admin)"
-          onSubmit={async (homeBid) => {
-            await overrideBid({ gameId: d._id, bid: homeBid });
+          onSubmit={async (bid, quoteTeam) => {
+            await overrideBid({ gameId: d._id, bid, quoteTeam });
           }}
         />
       </div>
 
       {d.bid !== null && (
         <div className="mt-4 space-y-1.5">
+          <p className="text-[11px] text-muted-foreground">
+            BUY / SELL <span className="text-foreground">{d.quoteTeamName}</span>
+          </p>
           {(players ?? [])
             .filter((p) => p.name !== d.makerPlayer)
             .map((p) => {

@@ -24,6 +24,9 @@ export const list = query({
         koUtc: g.koUtc ?? null,
         status: g.status,
         makerPlayer: g.makerPlayer ?? null,
+        quoteTeam: g.quoteTeam ?? "HOME",
+        quoteTeamName:
+          (g.quoteTeam ?? "HOME") === "AWAY" ? (g.away ?? "Away") : (g.home ?? "Home"),
         bid: g.bid ?? null,
         offer: g.bid !== undefined ? offerFor(g.bid) : null,
         stake: stakeForStage(g.stage),
@@ -87,6 +90,11 @@ export const detail = query({
       koUtc: game.koUtc ?? null,
       status: game.status,
       makerPlayer: game.makerPlayer ?? null,
+      quoteTeam: game.quoteTeam ?? "HOME",
+      quoteTeamName:
+        (game.quoteTeam ?? "HOME") === "AWAY"
+          ? (game.away ?? "Away")
+          : (game.home ?? "Home"),
       bid: game.bid ?? null,
       offer,
       stake,

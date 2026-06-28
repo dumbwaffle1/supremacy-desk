@@ -10,6 +10,7 @@ import {
   forcedLongDue,
   MAKER_LEAD_MS,
 } from "./lib/trading";
+import { teamSupremacy, tradePnl } from "./lib/game";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -73,6 +74,26 @@ describe("window pure logic (spec §7)", () => {
   test("unknown KO leaves windows open", () => {
     expect(makerWindowOpen(now(), null)).toBe(true);
     expect(takerWindowOpen(now(), undefined)).toBe(true);
+  });
+});
+
+describe("settlement P&L (quote-team)", () => {
+  test("sell the away favourite — worked example", () => {
+    // Maker quoted Canada (away) 1.3/1.5; you SELL Canada @ 1.3.
+    // Canada win 1–0 (home 0, away 1) → Canada supremacy = 1.
+    const s = teamSupremacy("AWAY", 0, 1);
+    expect(s).toBe(1);
+    expect(tradePnl("SELL", 1.3, s, 10)).toBeCloseTo(3); // (1.3 − 1) × 10
+  });
+
+  test("home supremacy basics (spec §5 example)", () => {
+    expect(tradePnl("BUY", 0.2, teamSupremacy("HOME", 3, 1), 10)).toBeCloseTo(18); // (2−0.2)×10
+    expect(tradePnl("SELL", 0.0, teamSupremacy("HOME", 0, 1), 10)).toBeCloseTo(10); // (0−(−1))×10
+  });
+
+  test("a penalty shootout is a draw → supremacy 0", () => {
+    expect(teamSupremacy("AWAY", 1, 1)).toBe(0);
+    expect(tradePnl("BUY", 0.2, 0, 10)).toBeCloseTo(-2);
   });
 });
 

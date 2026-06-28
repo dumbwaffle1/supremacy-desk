@@ -24,10 +24,14 @@ async function requireClaimedPlayer(
   return { userId, player: player.name };
 }
 
-/** Maker submits a single bid; offer = bid + WIDTH; locked after submit. */
+/** Maker submits a single bid on a chosen team; offer = bid + WIDTH. */
 export const submitBid = mutation({
-  args: { gameId: v.id("games"), bid: v.number() },
-  handler: async (ctx, { gameId, bid }) => {
+  args: {
+    gameId: v.id("games"),
+    bid: v.number(),
+    quoteTeam: v.optional(v.union(v.literal("HOME"), v.literal("AWAY"))),
+  },
+  handler: async (ctx, { gameId, bid, quoteTeam }) => {
     const { player } = await requireClaimedPlayer(ctx);
     const game = await ctx.db.get(gameId);
     if (!game) throw new Error("No such game.");
@@ -48,8 +52,12 @@ export const submitBid = mutation({
     const rounded = round2(bid);
     if (rounded < -20 || rounded > 20) throw new Error("Bid out of range.");
 
-    await ctx.db.patch(gameId, { bid: rounded, makerSubmittedAt: Date.now() });
-    return { bid: rounded, offer: offerFor(rounded) };
+    await ctx.db.patch(gameId, {
+      bid: rounded,
+      quoteTeam: quoteTeam ?? "HOME",
+      makerSubmittedAt: Date.now(),
+    });
+    return { bid: rounded, offer: offerFor(rounded), quoteTeam: quoteTeam ?? "HOME" };
   },
 });
 
@@ -127,6 +135,7 @@ export const applyDeadlinePenalties = internalMutation({
       if (game.bid === undefined && makerDefaultDue(now, game.koUtc)) {
         await ctx.db.patch(game._id, {
           bid: DEFAULT_BID,
+          quoteTeam: "HOME",
           makerSubmittedAt: now,
           defaultedMaker: true,
         });

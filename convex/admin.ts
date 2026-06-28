@@ -21,17 +21,23 @@ async function requireAdmin(ctx: MutationCtx): Promise<{ actor: string }> {
  * lock (e.g. a maker quoted in the group chat before the app existed). Audited.
  */
 export const overrideMakerBid = mutation({
-  args: { gameId: v.id("games"), bid: v.number() },
-  handler: async (ctx, { gameId, bid }) => {
+  args: {
+    gameId: v.id("games"),
+    bid: v.number(),
+    quoteTeam: v.optional(v.union(v.literal("HOME"), v.literal("AWAY"))),
+  },
+  handler: async (ctx, { gameId, bid, quoteTeam }) => {
     const { actor } = await requireAdmin(ctx);
     const game = await ctx.db.get(gameId);
     if (!game) throw new Error("No such game.");
     if (!Number.isFinite(bid)) throw new Error("Enter a valid number.");
     const rounded = round2(bid);
     if (rounded < -20 || rounded > 20) throw new Error("Bid out of range.");
+    const team = quoteTeam ?? "HOME";
 
     await ctx.db.patch(gameId, {
       bid: rounded,
+      quoteTeam: team,
       makerSubmittedAt: Date.now(),
       defaultedMaker: false,
     });
@@ -39,10 +45,14 @@ export const overrideMakerBid = mutation({
       actor,
       action: "admin_override_bid",
       gameId,
-      before: { bid: game.bid ?? null, defaultedMaker: game.defaultedMaker ?? false },
-      after: { bid: rounded, offer: offerFor(rounded) },
+      before: {
+        bid: game.bid ?? null,
+        quoteTeam: game.quoteTeam ?? null,
+        defaultedMaker: game.defaultedMaker ?? false,
+      },
+      after: { bid: rounded, offer: offerFor(rounded), quoteTeam: team },
     });
-    return { bid: rounded, offer: offerFor(rounded) };
+    return { bid: rounded, offer: offerFor(rounded), quoteTeam: team };
   },
 });
 

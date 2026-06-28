@@ -78,6 +78,9 @@ export default defineSchema({
     status: gameStatusValidator,
 
     makerPlayer: v.optional(v.string()),
+    // The team the price is quoted ON. bid/offer are that team's supremacy
+    // (teamGoals − oppGoals), in positive terms for a favourite. Default HOME.
+    quoteTeam: v.optional(v.union(v.literal("HOME"), v.literal("AWAY"))),
     bid: v.optional(v.number()), // offer = bid + WIDTH (derived, not stored)
     makerSubmittedAt: v.optional(v.number()),
     defaultedMaker: v.optional(v.boolean()),
