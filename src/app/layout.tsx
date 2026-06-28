@@ -4,6 +4,7 @@ import { ConvexAuthNextjsServerProvider } from "@convex-dev/auth/nextjs/server";
 import "./globals.css";
 import { ConvexClientProvider } from "@/components/ConvexClientProvider";
 import { AuthGate } from "@/components/AuthGate";
+import { ServiceWorkerRegister } from "@/components/ServiceWorkerRegister";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -16,8 +17,10 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Supremacy Desk",
-  description: "World Cup 2026 knockout goal-supremacy trading desk.",
+  title: "Supremacy",
+  description: "World Cup 2026 knockout goal-supremacy trading with friends.",
+  appleWebApp: { capable: true, statusBarStyle: "black-translucent", title: "Supremacy" },
+  icons: { apple: "/apple-touch-icon.png" },
 };
 
 export const viewport: Viewport = {
@@ -39,6 +42,7 @@ export default function RootLayout({
         className={`dark ${geistSans.variable} ${geistMono.variable} h-full antialiased`}
       >
         <body className="min-h-full bg-background text-foreground">
+          <ServiceWorkerRegister />
           <ConvexClientProvider>
             <AuthGate>{children}</AuthGate>
           </ConvexClientProvider>

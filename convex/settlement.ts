@@ -9,8 +9,9 @@ import {
 import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { settlementScore, mapStatus } from "./fixtures";
-import { teamSupremacy, tradePnl } from "./lib/game";
+import { round2, teamSupremacy, tradePnl } from "./lib/game";
 import { requireLeagueAdmin } from "./leagues";
+import type { Id } from "./_generated/dataModel";
 
 const API_MATCHES = "https://api.football-data.org/v4/competitions/WC/matches";
 
@@ -54,6 +55,67 @@ async function applySettlement(
     action: "settle",
     gameId: game._id,
     after: { home, away, supremacy: sup, quoteTeam },
+  });
+
+  // Outcome summary push to each participant (takers + maker).
+  if (game.leagueId) {
+    const players = await ctx.db
+      .query("players")
+      .withIndex("by_league", (q) => q.eq("leagueId", game.leagueId!))
+      .collect();
+    const userByName = new Map(
+      players
+        .filter((p) => p.claimedByUserId)
+        .map((p) => [p.name, p.claimedByUserId as Id<"users">]),
+    );
+    const matchup = `${game.home ?? "?"} ${home}–${away} ${game.away ?? "?"}`;
+
+    for (const t of trades) {
+      const uid = userByName.get(t.player);
+      if (uid) await notifySettle(ctx, uid, game, matchup, t.pnl ?? 0);
+    }
+    if (game.makerPlayer) {
+      const uid = userByName.get(game.makerPlayer);
+      if (uid) {
+        const makerPnl = round2(-trades.reduce((s, t) => s + (t.pnl ?? 0), 0));
+        await notifySettle(ctx, uid, game, matchup, makerPnl);
+      }
+    }
+  }
+}
+
+async function notifySettle(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  game: Doc<"games">,
+  matchup: string,
+  pnl: number,
+) {
+  const pref = await ctx.db
+    .query("notifPrefs")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .first();
+  if (pref && !pref.settlement) return;
+  const sent = await ctx.db
+    .query("notifsSent")
+    .withIndex("by_key", (q) =>
+      q.eq("userId", userId).eq("gameId", game._id).eq("kind", "settle"),
+    )
+    .first();
+  if (sent) return;
+  await ctx.db.insert("notifsSent", { userId, gameId: game._id, kind: "settle" });
+
+  const sub = await ctx.db
+    .query("pushSubs")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .first();
+  if (!sub) return;
+  const sign = pnl > 0 ? "+" : pnl < 0 ? "−" : "";
+  await ctx.scheduler.runAfter(0, internal.pushNode.send, {
+    userId,
+    title: "Game settled",
+    body: `${matchup} — you ${pnl >= 0 ? "made" : "lost"} ${sign}£${Math.abs(pnl)}`,
+    url: `/l/${game.leagueId}/games/${game._id}`,
   });
 }
 

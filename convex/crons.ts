@@ -19,4 +19,7 @@ crons.interval("deadline penalties", { minutes: 5 }, internal.trades.applyDeadli
 // consecutive identical final polls.
 crons.interval("poll scores", { minutes: 10 }, internal.settlement.pollScores, {});
 
+// Reminder pushes: maker "rate due" + taker "trade closes" near kick-offs.
+crons.interval("reminders", { minutes: 5 }, internal.reminders.tick, {});
+
 export default crons;

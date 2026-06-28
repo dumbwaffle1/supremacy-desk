@@ -3,16 +3,10 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion } from "motion/react";
-import { BookOpen, LineChart, ListOrdered, Scale, Shield } from "lucide-react";
+import { BookOpen, LineChart, ListOrdered, Scale, Settings } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-export function BottomTabBar({
-  leagueId,
-  isAdmin = false,
-}: {
-  leagueId: string;
-  isAdmin?: boolean;
-}) {
+export function BottomTabBar({ leagueId }: { leagueId: string }) {
   const pathname = usePathname();
   const base = `/l/${leagueId}`;
 
@@ -21,9 +15,7 @@ export function BottomTabBar({
     { href: `${base}/games`, label: "Games", icon: ListOrdered },
     { href: `${base}/settle`, label: "Settle", icon: Scale },
     { href: `${base}/rules`, label: "Rules", icon: BookOpen },
-    ...(isAdmin
-      ? [{ href: `${base}/admin`, label: "Admin", icon: Shield }]
-      : []),
+    { href: `${base}/settings`, label: "Settings", icon: Settings },
   ];
 
   const isActive = (href: string, exact?: boolean) =>

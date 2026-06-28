@@ -12,14 +12,12 @@ export function LeagueChrome({
   leagueName,
   playerName,
   peek = false,
-  isAdmin,
   children,
 }: {
   leagueId: string;
   leagueName: string;
   playerName: string | null;
   peek?: boolean;
-  isAdmin: boolean;
   children: ReactNode;
 }) {
   const { signOut } = useAuthActions();
@@ -66,7 +64,7 @@ export function LeagueChrome({
 
         <main className="flex-1 px-4 pb-28 pt-5">{children}</main>
       </div>
-      <BottomTabBar leagueId={leagueId} isAdmin={isAdmin} />
+      <BottomTabBar leagueId={leagueId} />
     </>
   );
 }

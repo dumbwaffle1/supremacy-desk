@@ -56,6 +56,31 @@ export default defineSchema({
     .index("by_invite", ["inviteCode"])
     .index("by_owner", ["ownerUserId"]),
 
+  // Per-user notification preferences (global across leagues).
+  notifPrefs: defineTable({
+    userId: v.id("users"),
+    maker: v.boolean(), // "rate due" reminders
+    taker: v.boolean(), // "trade closes at KO" reminders
+    settlement: v.boolean(), // end-of-game outcome summaries
+  }).index("by_user", ["userId"]),
+
+  // Web-push subscriptions (one device per row).
+  pushSubs: defineTable({
+    userId: v.id("users"),
+    endpoint: v.string(),
+    p256dh: v.string(),
+    auth: v.string(),
+  })
+    .index("by_user", ["userId"])
+    .index("by_endpoint", ["endpoint"]),
+
+  // De-dup sent reminders (one per user/game/kind).
+  notifsSent: defineTable({
+    userId: v.id("users"),
+    gameId: v.id("games"),
+    kind: v.string(), // "maker" | "taker" | "settle"
+  }).index("by_key", ["userId", "gameId", "kind"]),
+
   // A user has joined a league (may or may not have claimed a seat yet).
   memberships: defineTable({
     leagueId: v.id("leagues"),

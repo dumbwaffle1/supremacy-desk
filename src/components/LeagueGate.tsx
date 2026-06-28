@@ -49,7 +49,6 @@ export function LeagueGate({
       leagueName={league.name}
       playerName={me.player}
       peek={!me.isMember}
-      isAdmin={me.isAdmin}
     >
       {children}
     </LeagueChrome>
