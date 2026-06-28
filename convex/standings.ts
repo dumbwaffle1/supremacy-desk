@@ -1,41 +1,91 @@
 import { query } from "./_generated/server";
+import { QueryCtx } from "./_generated/server";
+import { round2 } from "./lib/game";
+
+/** Settled games oldest-first, with their trades, for cumulative P&L. */
+async function settledWithTrades(ctx: QueryCtx) {
+  const settled = (
+    await ctx.db
+      .query("games")
+      .withIndex("by_status", (q) => q.eq("status", "SETTLED"))
+      .collect()
+  ).sort((a, b) => (a.settledAt ?? 0) - (b.settledAt ?? 0) || a.gameNo - b.gameNo);
+
+  return Promise.all(
+    settled.map(async (game) => ({
+      game,
+      trades: await ctx.db
+        .query("trades")
+        .withIndex("by_game", (q) => q.eq("gameId", game._id))
+        .collect(),
+    })),
+  );
+}
+
+/** Per-game P&L deltas: each taker keeps Trade.pnl, maker = -sum (spec §5). */
+function applyGamePnl(
+  cum: Map<string, number>,
+  game: { makerPlayer?: string },
+  trades: { player: string; pnl?: number }[],
+) {
+  let makerCounter = 0;
+  for (const t of trades) {
+    const pnl = t.pnl ?? 0;
+    cum.set(t.player, (cum.get(t.player) ?? 0) + pnl);
+    makerCounter += pnl;
+  }
+  if (game.makerPlayer)
+    cum.set(game.makerPlayer, (cum.get(game.makerPlayer) ?? 0) - makerCounter);
+}
 
 /**
- * Standings = net £ P&L per player, recomputed from SETTLED games' trades.
- * DERIVED (never a stored counter) so re-settles are always correct — spec §4.
- *
- * Per settled game: each taker keeps their Trade.pnl; the maker is the
- * counterparty to everyone, so makerPnl = -sum(taker pnl) — spec §5.
+ * Net £ per player, recomputed from SETTLED games. Always lists the full roster
+ * (0 until they've settled anything) so the table is stable. DERIVED — spec §4.
  */
 export const standings = query({
   args: {},
   handler: async (ctx) => {
-    const settled = await ctx.db
-      .query("games")
-      .withIndex("by_status", (q) => q.eq("status", "SETTLED"))
-      .collect();
+    const roster = (await ctx.db.query("players").collect()).map((p) => p.name);
+    const cum = new Map<string, number>(roster.map((n) => [n, 0]));
 
-    const byPlayer = new Map<string, number>();
-    const add = (player: string, amount: number) =>
-      byPlayer.set(player, (byPlayer.get(player) ?? 0) + amount);
+    const settled = await settledWithTrades(ctx);
+    for (const { game, trades } of settled) applyGamePnl(cum, game, trades);
 
-    for (const game of settled) {
-      const trades = await ctx.db
-        .query("trades")
-        .withIndex("by_game", (q) => q.eq("gameId", game._id))
-        .collect();
+    const rows = [...cum.entries()]
+      .map(([player, pnl]) => ({ player, pnl: round2(pnl) }))
+      .sort((a, b) => b.pnl - a.pnl || a.player.localeCompare(b.player));
 
-      let makerCounter = 0;
-      for (const t of trades) {
-        const pnl = t.pnl ?? 0;
-        add(t.player, pnl);
-        makerCounter += pnl;
-      }
-      if (game.makerPlayer) add(game.makerPlayer, -makerCounter);
+    return { rows, settledCount: settled.length };
+  },
+});
+
+/**
+ * Cumulative-£ series for the equity curve — one value per player at each
+ * settled game, in chronological order. Recharts-friendly flat points.
+ */
+export const equityCurve = query({
+  args: {},
+  handler: async (ctx) => {
+    const roster = (await ctx.db.query("players").collect()).map((p) => p.name);
+    const cum = new Map<string, number>(roster.map((n) => [n, 0]));
+
+    const settled = await settledWithTrades(ctx);
+
+    const point = (name: string) => {
+      const p: Record<string, number | string> = { name };
+      for (const player of roster) p[player] = round2(cum.get(player) ?? 0);
+      return p;
+    };
+
+    const points: Record<string, number | string>[] = [point("Start")];
+    for (const { game, trades } of settled) {
+      applyGamePnl(cum, game, trades);
+      points.push(point(`#${game.gameNo}`));
     }
 
-    return [...byPlayer.entries()]
-      .map(([player, pnl]) => ({ player, pnl: Math.round(pnl * 100) / 100 }))
-      .sort((a, b) => b.pnl - a.pnl);
+    // Only draw lines for players who have actually moved (keeps it readable).
+    const active = roster.filter((p) => (cum.get(p) ?? 0) !== 0);
+
+    return { players: active.length ? active : roster, points, settledCount: settled.length };
   },
 });
