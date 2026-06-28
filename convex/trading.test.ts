@@ -77,20 +77,42 @@ describe("window pure logic (spec §7)", () => {
 });
 
 describe("maker bid", () => {
-  test("submits, offer = bid + 0.2, then locks", async () => {
+  test("submits, offer = bid + 0.2, amendable until a trade, then locked", async () => {
     const t = convexTest(schema, modules);
     const yas = await addPlayer(t, "Yas");
+    const cp = await addPlayer(t, "CP");
     const gameId = await addGame(t, { maker: "Yas", koUtc: koOpen() });
 
-    const res = await asPlayer(t, yas).mutation(api.trades.submitBid, {
+    const r1 = await asPlayer(t, yas).mutation(api.trades.submitBid, {
       gameId,
       bid: 0.3,
     });
-    expect(res.offer).toBeCloseTo(0.5);
+    expect(r1.offer).toBeCloseTo(0.5);
 
+    // Amend allowed while nobody has traded.
+    const r2 = await asPlayer(t, yas).mutation(api.trades.submitBid, {
+      gameId,
+      bid: 0.1,
+    });
+    expect(r2.offer).toBeCloseTo(0.3);
+
+    // Once a taker trades, the rate locks.
+    await asPlayer(t, cp).mutation(api.trades.submitTrade, { gameId, side: "BUY" });
     await expect(
-      asPlayer(t, yas).mutation(api.trades.submitBid, { gameId, bid: 0.1 }),
+      asPlayer(t, yas).mutation(api.trades.submitBid, { gameId, bid: 0.2 }),
     ).rejects.toThrow(/locked/i);
+  });
+
+  test("supports negative / flat quotes", async () => {
+    const t = convexTest(schema, modules);
+    const yas = await addPlayer(t, "Yas");
+    const gameId = await addGame(t, { maker: "Yas", koUtc: koOpen() });
+    const r = await asPlayer(t, yas).mutation(api.trades.submitBid, {
+      gameId,
+      bid: -0.1,
+    });
+    expect(r.bid).toBeCloseTo(-0.1);
+    expect(r.offer).toBeCloseTo(0.1); // −0.1 / 0.1 flat
   });
 
   test("rejects when maker window has closed", async () => {

@@ -35,9 +35,14 @@ export const submitBid = mutation({
       throw new Error("This game is closed.");
     if (game.makerPlayer !== player)
       throw new Error("You're not the maker for this game.");
-    if (game.bid !== undefined) throw new Error("Your rate is already in (locked).");
     if (!makerWindowOpen(Date.now(), game.koUtc))
       throw new Error("The maker window has closed (under 60 min to kick-off).");
+    // Amendable until someone trades on it, then locked.
+    const anyTrade = await ctx.db
+      .query("trades")
+      .withIndex("by_game", (q) => q.eq("gameId", gameId))
+      .first();
+    if (anyTrade) throw new Error("Rate is locked — someone has already traded.");
 
     if (!Number.isFinite(bid)) throw new Error("Enter a valid number.");
     const rounded = round2(bid);

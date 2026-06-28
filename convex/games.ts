@@ -3,6 +3,7 @@ import { query } from "./_generated/server";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { offerFor, stakeForStage } from "./lib/game";
 import { makerWindowOpen, takerWindowOpen } from "./lib/trading";
+import { ADMIN_EMAIL } from "../src/config/constants";
 
 /** All games with derived offer + stake, ordered by gameNo. Read by the UI —
  *  screen loads never hit the football API (everything is cached in Convex). */
@@ -60,7 +61,12 @@ export const detail = query({
     // Viewer
     const userId = await getAuthUserId(ctx);
     let mePlayer: string | null = null;
+    let isAdmin = false;
     if (userId) {
+      const user = await ctx.db.get(userId);
+      isAdmin =
+        !!user?.isAdmin ||
+        (user?.email ?? "").toLowerCase() === ADMIN_EMAIL.toLowerCase();
       const p = await ctx.db
         .query("players")
         .withIndex("by_claimedBy", (q) => q.eq("claimedByUserId", userId))
@@ -100,8 +106,10 @@ export const detail = query({
         pnl: t.pnl ?? null,
       })),
       stillToTrade,
+      hasTrades: trades.length > 0,
       me: {
         player: mePlayer,
+        isAdmin,
         isMaker: mePlayer !== null && mePlayer === game.makerPlayer,
         trade: myTrade
           ? {
