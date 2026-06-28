@@ -14,6 +14,7 @@ import type * as lib_game from "../lib/game.js";
 import type * as players from "../players.js";
 import type * as seed from "../seed.js";
 import type * as standings from "../standings.js";
+import type * as users from "../users.js";
 
 import type {
   ApiFromModules,
@@ -28,6 +29,7 @@ declare const fullApi: ApiFromModules<{
   players: typeof players;
   seed: typeof seed;
   standings: typeof standings;
+  users: typeof users;
 }>;
 
 /**

@@ -3,7 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { ConvexAuthNextjsServerProvider } from "@convex-dev/auth/nextjs/server";
 import "./globals.css";
 import { ConvexClientProvider } from "@/components/ConvexClientProvider";
-import { BottomTabBar } from "@/components/BottomTabBar";
+import { AuthGate } from "@/components/AuthGate";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -40,18 +40,7 @@ export default function RootLayout({
       >
         <body className="min-h-full bg-background text-foreground">
           <ConvexClientProvider>
-            <div className="mx-auto flex min-h-dvh max-w-md flex-col">
-              <header className="sticky top-0 z-30 flex items-center justify-between border-b border-border bg-background/95 px-4 py-3 backdrop-blur">
-                <span className="text-base font-semibold tracking-tight">
-                  Supremacy&nbsp;Desk
-                </span>
-                <span className="text-xs text-muted-foreground">WC2026 Knockouts</span>
-              </header>
-
-              {/* pb-20 leaves room for the fixed bottom tab bar */}
-              <main className="flex-1 px-4 pb-24 pt-4">{children}</main>
-            </div>
-            <BottomTabBar />
+            <AuthGate>{children}</AuthGate>
           </ConvexClientProvider>
         </body>
       </html>
