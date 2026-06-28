@@ -22,6 +22,10 @@ export function Rules({ leagueId }: { leagueId: string }) {
   });
   const width = league?.width ?? 0.2;
   const stakes = league?.stakes;
+  const stake = stakes?.R32 ?? 10;
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+  const buyWin = r2((2 - width) * stake);
+  const sellWin = r2(1 * stake);
 
   return (
     <div className="space-y-4">
@@ -29,19 +33,55 @@ export function Rules({ leagueId }: { leagueId: string }) {
 
       <Section title="The market">
         <p>
-          Each game has one{" "}
-          <span className="text-foreground">maker</span>{" "}
-          who quotes a two-way price on a team&apos;s{" "}
-          <span className="text-foreground">supremacy</span>{" "}
-          (their goals minus the opponent&apos;s). The{" "}
-          <span className="text-foreground">offer</span> is the{" "}
-          <span className="text-foreground">bid + {width}</span>.
+          Each game has one <span className="text-foreground">maker</span>, who quotes a
+          two-way price on a team&apos;s{" "}
+          <span className="text-foreground">supremacy</span> — their final goals minus
+          the opponent&apos;s. The lower price is the{" "}
+          <span className="text-foreground">bid</span>; the higher is the{" "}
+          <span className="text-foreground">offer</span> (bid + {width}).
         </p>
         <p>
-          Everyone else is a <span className="text-foreground">taker</span>:{" "}
-          <span className="text-up">BUY</span> to back that team to beat the offer, or{" "}
-          <span className="text-down">SELL</span> to lay them at the bid. The maker is
-          the counterparty to everyone — it&apos;s zero-sum per game.
+          Everyone else trades against that quote:
+        </p>
+        <ul className="ml-1 list-none space-y-1">
+          <li>
+            <span className="font-semibold text-up">BUY</span> at the offer if you think
+            the team will <span className="text-foreground">win by more</span> than the
+            offer.
+          </li>
+          <li>
+            <span className="font-semibold text-down">SELL</span> at the bid if you think
+            they&apos;ll <span className="text-foreground">do worse</span> than the bid
+            (a narrow win, draw, or loss).
+          </li>
+        </ul>
+        <p>
+          Your profit is how far the final supremacy lands beyond your price, times your
+          stake. The maker takes the opposite side of every trade, so each game is
+          zero-sum.
+        </p>
+      </Section>
+
+      <Section title="Worked example">
+        <p>
+          France quoted <span className="tnum">0.0 / {width.toFixed(1)}</span>, R32 stake{" "}
+          <span className="tnum">£{stake}/goal</span>:
+        </p>
+        <ul className="space-y-1 text-xs">
+          <li>
+            <span className="text-up">BUY</span> @ {width.toFixed(1)} · France win 3–1
+            (supremacy +2) → (2 − {width.toFixed(1)}) × £{stake} ={" "}
+            <span className="tnum text-up">+£{buyWin}</span>
+          </li>
+          <li>
+            <span className="text-down">SELL</span> @ 0.0 · France lose 0–1 (supremacy
+            −1) → (0 − (−1)) × £{stake} ={" "}
+            <span className="tnum text-up">+£{sellWin}</span>
+          </li>
+        </ul>
+        <p className="text-[11px]">
+          The final score is known at settlement, so each payout is a fixed £ amount —
+          the stake is just the £-per-goal multiplier.
         </p>
       </Section>
 
@@ -87,21 +127,6 @@ export function Rules({ leagueId }: { leagueId: string }) {
           anyone who doesn&apos;t is auto-placed <span className="text-foreground">long
           at the offer</span>. All positions lock at kick-off (rates lock once anyone
           trades).
-        </p>
-      </Section>
-
-      <Section title="Worked example">
-        <p>
-          France quoted <span className="tnum">0.0 / {width.toFixed(1)}</span>:
-        </p>
-        <p className="text-xs">
-          • BUY @ {width.toFixed(1)}, France win 3–1 (supremacy +2) →{" "}
-          <span className="text-up tnum">
-            +{(2 - width).toFixed(1)}
-          </span>{" "}
-          per £/goal.
-          <br />• SELL @ 0.0, France lose 0–1 (supremacy −1) →{" "}
-          <span className="text-up tnum">+1.0</span> per £/goal.
         </p>
       </Section>
 

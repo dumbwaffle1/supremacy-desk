@@ -70,9 +70,10 @@ async function seedGamesFrom(
   }
 }
 
-/** Assign makers round-robin across OPEN games (not started, no rate, no
- *  trades), so every playable game has a maker. Committed/started/settled games
- *  keep theirs. Called on creation + whenever the roster changes. */
+/** Assign makers round-robin across OPEN R32 + R16 games (the random-draw
+ *  stages) so every early game has a maker. QF/SF/3PO/F makers are decided by
+ *  standings (the admin draw) and are NOT auto-assigned here. Committed/started/
+ *  settled games keep theirs. Runs on creation + whenever the roster changes. */
 export async function rebalanceMakers(ctx: MutationCtx, leagueId: Id<"leagues">) {
   const players = (
     await ctx.db
@@ -99,6 +100,7 @@ export async function rebalanceMakers(ctx: MutationCtx, leagueId: Id<"leagues">)
 
   let i = 0;
   for (const g of games) {
+    if (g.stage !== "R32" && g.stage !== "R16") continue; // QF+ = standings draw
     const open =
       g.status === "SCHEDULED" &&
       g.bid === undefined &&
@@ -117,6 +119,24 @@ export const rebalanceAll = internalMutation({
     const leagues = await ctx.db.query("leagues").collect();
     for (const l of leagues) await rebalanceMakers(ctx, l._id);
     return { leagues: leagues.length };
+  },
+});
+
+/** One-off: clear auto-assigned makers on open QF/SF/3PO/F games — those stages
+ *  are decided by standings via the admin draw, not round-robin. */
+export const clearLateMakers = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const games = await ctx.db.query("games").collect();
+    let cleared = 0;
+    for (const g of games) {
+      if (!["QF", "SF", "3PO", "F"].includes(g.stage)) continue;
+      if (g.status === "SCHEDULED" && g.bid === undefined && g.makerPlayer) {
+        await ctx.db.patch(g._id, { makerPlayer: undefined });
+        cleared++;
+      }
+    }
+    return { cleared };
   },
 });
 
