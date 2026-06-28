@@ -22,15 +22,13 @@ export const gameStatusValidator = v.union(
 
 export const sideValidator = v.union(v.literal("BUY"), v.literal("SELL"));
 
-// Data model — see supremacy-build-spec.md §4. createdAt is covered by Convex's
-// built-in `_creationTime` on every document, so it isn't stored explicitly.
+// Multi-tenant: every competition is a "league" (a Supremacy). All game data is
+// scoped by leagueId. leagueId is optional only to keep the one-time migration
+// of pre-multi-tenant rows valid; new rows always set it.
 export default defineSchema({
   ...authTables,
 
-  // Convex Auth's `users` table, inlined so we can add our own fields.
-  // The library-required fields + the `email`/`phone` indexes must stay.
   users: defineTable({
-    // --- managed by Convex Auth ---
     name: v.optional(v.string()),
     image: v.optional(v.string()),
     email: v.optional(v.string()),
@@ -38,79 +36,88 @@ export default defineSchema({
     phone: v.optional(v.string()),
     phoneVerificationTime: v.optional(v.number()),
     isAnonymous: v.optional(v.boolean()),
-    // --- ours ---
     displayName: v.optional(v.string()),
-    isAdmin: v.optional(v.boolean()),
-    // Name of the Player this account has claimed (mirror of Player.claimedByUserId).
+    isAdmin: v.optional(v.boolean()), // global super-admin
     playerName: v.optional(v.string()),
   })
     .index("email", ["email"])
     .index("phone", ["phone"]),
 
-  // Open roster: a name can exist UNCLAIMED (claimedByUserId undefined), then a
-  // login claims it — or a new name is added. addedByUserId is undefined for the
-  // seeded roster.
+  // A competition instance ("Supremacy"). The owner is its admin.
+  leagues: defineTable({
+    name: v.string(),
+    tournament: v.string(), // "WC2026"
+    width: v.number(),
+    stakes: v.array(v.object({ stage: stageValidator, amount: v.number() })),
+    settlementBasis: v.string(),
+    ownerUserId: v.optional(v.id("users")),
+    inviteCode: v.string(),
+  })
+    .index("by_invite", ["inviteCode"])
+    .index("by_owner", ["ownerUserId"]),
+
+  // Open roster, scoped to a league.
   players: defineTable({
+    leagueId: v.optional(v.id("leagues")),
     name: v.string(),
     claimedByUserId: v.optional(v.id("users")),
     addedByUserId: v.optional(v.id("users")),
   })
     .index("by_name", ["name"])
-    .index("by_claimedBy", ["claimedByUserId"]),
+    .index("by_claimedBy", ["claimedByUserId"])
+    .index("by_league", ["leagueId"])
+    .index("by_league_claimedBy", ["leagueId", "claimedByUserId"]),
 
+  // Legacy single-tenant config (superseded by leagues; kept so migration's
+  // existing rows stay valid — no longer read).
   tournaments: defineTable({
     name: v.string(),
     width: v.number(),
-    // Stored as a list because Convex object keys must be valid identifiers and
-    // "3PO" isn't one. Stage stays a value; amount is £/goal.
     stakes: v.array(v.object({ stage: stageValidator, amount: v.number() })),
     settlementBasis: v.string(),
   }),
 
   games: defineTable({
-    fixtureId: v.optional(v.number()), // API-Football fixture id (set by sync)
+    leagueId: v.optional(v.id("leagues")),
+    fixtureId: v.optional(v.number()),
     gameNo: v.number(),
     stage: stageValidator,
-    round: v.optional(v.string()), // API round string, e.g. "Round of 32"
+    round: v.optional(v.string()),
     home: v.optional(v.string()),
     away: v.optional(v.string()),
-    koUtc: v.optional(v.number()), // ms epoch UTC; unknown until fixture sync
+    koUtc: v.optional(v.number()),
     status: gameStatusValidator,
 
     makerPlayer: v.optional(v.string()),
-    // The team the price is quoted ON. bid/offer are that team's supremacy
-    // (teamGoals − oppGoals), in positive terms for a favourite. Default HOME.
     quoteTeam: v.optional(v.union(v.literal("HOME"), v.literal("AWAY"))),
-    bid: v.optional(v.number()), // offer = bid + WIDTH (derived, not stored)
+    bid: v.optional(v.number()),
     makerSubmittedAt: v.optional(v.number()),
     defaultedMaker: v.optional(v.boolean()),
 
-    // Settlement — post-extra-time score (penalties excluded). See spec §3.
     settleHome: v.optional(v.number()),
     settleAway: v.optional(v.number()),
     settledAt: v.optional(v.number()),
 
-    // Live score cache, refreshed by the settlement poll (Prompt 7).
     liveHome: v.optional(v.number()),
     liveAway: v.optional(v.number()),
     liveStatusShort: v.optional(v.string()),
-    // Settle only when a final score repeats across two polls (ignore transients).
     settleCandidateHome: v.optional(v.number()),
     settleCandidateAway: v.optional(v.number()),
   })
-    .index("by_gameNo", ["gameNo"])
-    .index("by_stage", ["stage"])
     .index("by_status", ["status"])
-    .index("by_fixtureId", ["fixtureId"]),
+    .index("by_fixtureId", ["fixtureId"])
+    .index("by_league", ["leagueId"])
+    .index("by_league_status", ["leagueId", "status"]),
 
   trades: defineTable({
+    leagueId: v.optional(v.id("leagues")),
     gameId: v.id("games"),
     player: v.string(),
     side: sideValidator,
-    priceTaken: v.number(), // BUY = offer, SELL = bid (snapshot at submit)
-    stake: v.number(), // £/goal for the game's stage
+    priceTaken: v.number(),
+    stake: v.number(),
     forcedLong: v.optional(v.boolean()),
-    pnl: v.optional(v.number()), // filled at settlement
+    pnl: v.optional(v.number()),
     submittedAt: v.number(),
   })
     .index("by_game", ["gameId"])
@@ -118,28 +125,32 @@ export default defineSchema({
     .index("by_game_player", ["gameId", "player"]),
 
   auditLogs: defineTable({
-    actor: v.string(), // email / player / "system"
+    leagueId: v.optional(v.id("leagues")),
+    actor: v.string(),
     action: v.string(),
     gameId: v.optional(v.id("games")),
     before: v.optional(v.any()),
     after: v.optional(v.any()),
-  }).index("by_game", ["gameId"]),
+  })
+    .index("by_game", ["gameId"])
+    .index("by_league", ["leagueId"]),
 
-  // Real-world cash settlements (Settle tab) — who has paid whom. Not in-app
-  // payments; just a record so the ledger can mark a transfer done.
   payments: defineTable({
+    leagueId: v.optional(v.id("leagues")),
     fromPlayer: v.string(),
     toPlayer: v.string(),
     amount: v.number(),
     ts: v.number(),
-  }).index("by_pair", ["fromPlayer", "toPlayer"]),
+  })
+    .index("by_pair", ["fromPlayer", "toPlayer"])
+    .index("by_league", ["leagueId"]),
 
-  // "Final settle" snapshot — the official end-of-tournament result.
   ledgerSnapshots: defineTable({
+    leagueId: v.optional(v.id("leagues")),
     by: v.string(),
     balances: v.array(v.object({ player: v.string(), net: v.number() })),
     transfers: v.array(
       v.object({ from: v.string(), to: v.string(), amount: v.number() }),
     ),
-  }),
+  }).index("by_league", ["leagueId"]),
 });
