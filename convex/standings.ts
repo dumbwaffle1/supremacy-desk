@@ -38,6 +38,25 @@ function applyGamePnl(
     cum.set(game.makerPlayer, (cum.get(game.makerPlayer) ?? 0) - makerCounter);
 }
 
+/** Exact net £ per player from settled games (optionally one stage). Reused by
+ *  the standings + ledger. Always seeds the full roster at 0. */
+export async function pnlMap(
+  ctx: QueryCtx,
+  stage?: string,
+): Promise<{ cum: Map<string, number>; settledCount: number }> {
+  const roster = (await ctx.db.query("players").collect()).map((p) => p.name);
+  const cum = new Map<string, number>(roster.map((n) => [n, 0]));
+
+  const settled = await settledWithTrades(ctx);
+  let count = 0;
+  for (const { game, trades } of settled) {
+    if (stage && game.stage !== stage) continue;
+    applyGamePnl(cum, game, trades);
+    count++;
+  }
+  return { cum, settledCount: count };
+}
+
 /**
  * Net £ per player, recomputed from SETTLED games. Always lists the full roster
  * (0 until they've settled anything) so the table is stable. DERIVED — spec §4.
@@ -45,17 +64,11 @@ function applyGamePnl(
 export const standings = query({
   args: {},
   handler: async (ctx) => {
-    const roster = (await ctx.db.query("players").collect()).map((p) => p.name);
-    const cum = new Map<string, number>(roster.map((n) => [n, 0]));
-
-    const settled = await settledWithTrades(ctx);
-    for (const { game, trades } of settled) applyGamePnl(cum, game, trades);
-
+    const { cum, settledCount } = await pnlMap(ctx);
     const rows = [...cum.entries()]
       .map(([player, pnl]) => ({ player, pnl: round2(pnl) }))
       .sort((a, b) => b.pnl - a.pnl || a.player.localeCompare(b.player));
-
-    return { rows, settledCount: settled.length };
+    return { rows, settledCount };
   },
 });
 

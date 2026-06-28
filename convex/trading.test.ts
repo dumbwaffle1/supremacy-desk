@@ -11,6 +11,7 @@ import {
   MAKER_LEAD_MS,
 } from "./lib/trading";
 import { teamSupremacy, tradePnl } from "./lib/game";
+import { roundedBalances, minimalTransfers } from "./lib/ledger";
 
 const modules = import.meta.glob("./**/*.ts");
 
@@ -94,6 +95,35 @@ describe("settlement P&L (quote-team)", () => {
   test("a penalty shootout is a draw → supremacy 0", () => {
     expect(teamSupremacy("AWAY", 1, 1)).toBe(0);
     expect(tradePnl("BUY", 0.2, 0, 10)).toBeCloseTo(-2);
+  });
+});
+
+describe("ledger math", () => {
+  test("rounding keeps balances zero-sum", () => {
+    const b = roundedBalances(
+      new Map([
+        ["A", 5.4],
+        ["B", -2.6],
+        ["C", -2.8],
+      ]),
+    );
+    expect(b.reduce((s, x) => s + x.net, 0)).toBe(0);
+  });
+
+  test("minimal transfers clear everyone with ≤ n−1 moves", () => {
+    const balances = [
+      { player: "A", net: 5 },
+      { player: "B", net: -3 },
+      { player: "C", net: -2 },
+    ];
+    const tr = minimalTransfers(balances);
+    expect(tr.length).toBe(2);
+    const net = new Map(balances.map((x) => [x.player, x.net]));
+    for (const t of tr) {
+      net.set(t.from, (net.get(t.from) ?? 0) + t.amount);
+      net.set(t.to, (net.get(t.to) ?? 0) - t.amount);
+    }
+    expect([...net.values()].every((v) => v === 0)).toBe(true);
   });
 });
 

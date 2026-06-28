@@ -124,4 +124,22 @@ export default defineSchema({
     before: v.optional(v.any()),
     after: v.optional(v.any()),
   }).index("by_game", ["gameId"]),
+
+  // Real-world cash settlements (Settle tab) — who has paid whom. Not in-app
+  // payments; just a record so the ledger can mark a transfer done.
+  payments: defineTable({
+    fromPlayer: v.string(),
+    toPlayer: v.string(),
+    amount: v.number(),
+    ts: v.number(),
+  }).index("by_pair", ["fromPlayer", "toPlayer"]),
+
+  // "Final settle" snapshot — the official end-of-tournament result.
+  ledgerSnapshots: defineTable({
+    by: v.string(),
+    balances: v.array(v.object({ player: v.string(), net: v.number() })),
+    transfers: v.array(
+      v.object({ from: v.string(), to: v.string(), amount: v.number() }),
+    ),
+  }),
 });
