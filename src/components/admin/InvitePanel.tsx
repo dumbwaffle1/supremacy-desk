@@ -44,7 +44,7 @@ export function InvitePanel({ leagueId }: { leagueId: string }) {
   };
 
   return (
-    <div className="panel rounded-2xl p-5">
+    <div id="invite" className="panel scroll-mt-20 rounded-2xl p-5">
       <h2 className="text-sm font-semibold">Invite players</h2>
       <p className="mt-0.5 text-xs text-muted-foreground">
         Share this link so friends can join.

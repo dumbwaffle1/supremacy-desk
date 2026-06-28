@@ -3,7 +3,7 @@
 import { ReactNode } from "react";
 import Link from "next/link";
 import { useAuthActions } from "@convex-dev/auth/react";
-import { ChevronLeft, LogOut } from "lucide-react";
+import { ChevronLeft, LogOut, UserPlus } from "lucide-react";
 import { BottomTabBar } from "@/components/BottomTabBar";
 import { colorFor } from "@/config/constants";
 
@@ -39,6 +39,13 @@ export function LeagueChrome({
             </span>
           </div>
           <div className="flex items-center gap-2">
+            <Link
+              href={`/l/${leagueId}/settings#invite`}
+              aria-label="Invite players"
+              className="grid size-8 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            >
+              <UserPlus className="size-4" />
+            </Link>
             {peek || !playerName ? (
               <span className="rounded-full bg-primary/15 px-2.5 py-1 text-xs font-medium text-primary">
                 admin · peek
