@@ -10,11 +10,11 @@ export const list = query({
       .withIndex("by_league", (q) => q.eq("leagueId", leagueId))
       .collect();
     return players
+      .sort((a, b) => a._creationTime - b._creationTime) // join order
       .map((p) => ({
         _id: p._id,
         name: p.name,
         claimed: p.claimedByUserId !== undefined,
-      }))
-      .sort((a, b) => a.name.localeCompare(b.name));
+      }));
   },
 });

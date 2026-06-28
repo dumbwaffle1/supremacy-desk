@@ -3,27 +3,18 @@
 import { useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
-import { Dice5, Lock } from "lucide-react";
+import { Dice5, Eraser, ListOrdered, Lock, X } from "lucide-react";
 import { api } from "../../../convex/_generated/api";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
 import { type Stage } from "@/config/constants";
 
 const DRAWS = [
-  { key: "R32", label: "R32 · section 2", stages: ["R32"] },
+  { key: "R32", label: "R32", stages: ["R32"] },
   { key: "R16", label: "R16", stages: ["R16"] },
   { key: "QF", label: "QF · bottom 4", stages: ["QF"] },
   { key: "F4", label: "Final four · SF·3PO·F", stages: ["SF", "3PO", "F"] },
 ] as const;
-
-function shuffle<T>(arr: T[]): T[] {
-  const a = [...arr];
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a;
-}
 
 type Game = FunctionReturnType<typeof api.games.list>[number];
 
@@ -44,50 +35,75 @@ export function MakerDrawPanel({ leagueId }: { leagueId: string }) {
   }
 
   const draw = DRAWS.find((d) => d.key === drawKey)!;
-  const roster = players.map((p) => p.name);
+  const roster = players.map((p) => p.name); // join order (≈ spreadsheet order)
   const order = standings.rows.map((r) => r.player); // best → worst
   const drawStages = draw.stages as readonly Stage[];
   const stageGames = games
     .filter((g) => drawStages.includes(g.stage as Stage))
     .sort((a, b) => a.gameNo - b.gameNo);
 
-  const propose = () => {
-    const next: Record<string, string> = {};
-    if (drawKey === "R32") {
-      const pool = shuffle(roster);
-      let i = 0;
-      for (const g of stageGames) {
-        next[g._id] = g.makerPlayer ?? pool[i++ % pool.length];
-      }
-    } else if (drawKey === "R16") {
-      const pool = shuffle(roster);
-      stageGames.forEach((g, i) => (next[g._id] = pool[i % pool.length]));
-    } else if (drawKey === "QF") {
-      const bottom4 = order.slice(-4);
-      stageGames.forEach((g, i) => (next[g._id] = bottom4[i % bottom4.length] ?? ""));
-    } else {
+  const valOf = (g: Game) => assign[g._id] ?? g.makerPlayer ?? "";
+
+  const poolFor = (): string[] => {
+    if (drawKey === "QF") return order.slice(-4); // bottom 4 by P&L
+    if (drawKey === "F4") {
       const qfMakers = new Set(
-        games.filter((g) => g.stage === "QF").map((g) => g.makerPlayer),
+        games.filter((g) => g.stage === "QF").map((g) => g.makerPlayer).filter(Boolean),
       );
-      let remaining = roster.filter((p) => !qfMakers.has(p));
-      if (remaining.length !== 4) remaining = order.slice(0, 4);
-      remaining = order.filter((p) => remaining.includes(p)); // by standing
-      stageGames.forEach((g, i) => (next[g._id] = remaining[i % remaining.length] ?? ""));
+      let rem = roster.filter((p) => !qfMakers.has(p));
+      if (rem.length !== 4) rem = order.slice(0, 4);
+      return order.filter((p) => rem.includes(p)); // remaining 4, by standing
+    }
+    return roster;
+  };
+
+  // Fill only the blanks, giving each game to the least-used pool player so
+  // everyone makes roughly the same number of games.
+  const propose = () => {
+    const pool = poolFor();
+    if (pool.length === 0) return;
+    const next = { ...assign };
+    const count = new Map(pool.map((p) => [p, 0]));
+    for (const g of stageGames) {
+      const m = next[g._id] ?? g.makerPlayer ?? "";
+      if (m && count.has(m)) count.set(m, (count.get(m) ?? 0) + 1);
+    }
+    for (const g of stageGames) {
+      const cur = next[g._id] ?? g.makerPlayer ?? "";
+      if (cur) continue;
+      let best = pool[0];
+      for (const p of pool) if ((count.get(p) ?? 0) < (count.get(best) ?? 0)) best = p;
+      next[g._id] = best;
+      count.set(best, (count.get(best) ?? 0) + 1);
     }
     setAssign(next);
     setMsg(null);
   };
 
+  const rosterOrder = () => {
+    const next = { ...assign };
+    stageGames.forEach((g, i) => (next[g._id] = roster[i % roster.length] ?? ""));
+    setAssign(next);
+    setMsg(null);
+  };
+
+  const clearAll = () => {
+    const next = { ...assign };
+    stageGames.forEach((g) => (next[g._id] = ""));
+    setAssign(next);
+    setMsg(null);
+  };
+
   const lock = async () => {
-    const assignments = stageGames
-      .map((g) => ({ gameId: g._id as Id<"games">, player: assign[g._id] }))
-      .filter((a) => a.player);
-    if (assignments.length === 0) return;
+    const assignments = stageGames.map((g) => ({
+      gameId: g._id as Id<"games">,
+      player: valOf(g),
+    }));
     setBusy(true);
     setMsg(null);
     try {
       const r = await assignMakers({ leagueId: lid, assignments });
-      setMsg(`Locked ${r.count} maker assignment${r.count === 1 ? "" : "s"}.`);
+      setMsg(`Locked — ${r.count} game${r.count === 1 ? "" : "s"} have a maker.`);
     } finally {
       setBusy(false);
     }
@@ -97,27 +113,35 @@ export function MakerDrawPanel({ leagueId }: { leagueId: string }) {
     <div className="panel rounded-2xl p-5">
       <h2 className="text-sm font-semibold">Maker draw</h2>
       <p className="mt-0.5 text-xs text-muted-foreground">
-        Propose per the stage rules, tweak, then lock.
+        R32/R16 random &amp; even; QF = bottom 4 by P&amp;L; final four = remaining 4 by
+        standing. Tweak, then lock.
       </p>
 
-      <div className="mt-3 flex gap-2">
-        <select
-          value={drawKey}
-          onChange={(e) => {
-            setDrawKey(e.target.value as typeof drawKey);
-            setAssign({});
-            setMsg(null);
-          }}
-          className="h-9 flex-1 rounded-lg border border-input bg-secondary px-3 text-sm"
-        >
-          {DRAWS.map((d) => (
-            <option key={d.key} value={d.key}>
-              {d.label}
-            </option>
-          ))}
-        </select>
-        <Button size="sm" variant="outline" className="h-9 border-border" onClick={propose}>
-          <Dice5 className="size-4" /> Propose
+      <select
+        value={drawKey}
+        onChange={(e) => {
+          setDrawKey(e.target.value as typeof drawKey);
+          setAssign({});
+          setMsg(null);
+        }}
+        className="mt-3 h-9 w-full rounded-lg border border-input bg-secondary px-3 text-sm"
+      >
+        {DRAWS.map((d) => (
+          <option key={d.key} value={d.key}>
+            {d.label}
+          </option>
+        ))}
+      </select>
+
+      <div className="mt-2 flex gap-1.5">
+        <Button size="sm" variant="outline" className="h-8 flex-1 border-border" onClick={propose}>
+          <Dice5 className="size-3.5" /> Propose
+        </Button>
+        <Button size="sm" variant="outline" className="h-8 flex-1 border-border" onClick={rosterOrder}>
+          <ListOrdered className="size-3.5" /> Order
+        </Button>
+        <Button size="sm" variant="outline" className="h-8 flex-1 border-border" onClick={clearAll}>
+          <Eraser className="size-3.5" /> Clear
         </Button>
       </div>
 
@@ -129,9 +153,9 @@ export function MakerDrawPanel({ leagueId }: { leagueId: string }) {
               {g.home ?? "TBD"} v {g.away ?? "TBD"}
             </span>
             <select
-              value={assign[g._id] ?? g.makerPlayer ?? ""}
+              value={valOf(g)}
               onChange={(e) => setAssign((a) => ({ ...a, [g._id]: e.target.value }))}
-              className="h-8 w-28 rounded-md border border-input bg-secondary px-2 text-xs"
+              className="h-8 w-24 rounded-md border border-input bg-secondary px-2 text-xs"
             >
               <option value="">—</option>
               {roster.map((p) => (
@@ -140,6 +164,15 @@ export function MakerDrawPanel({ leagueId }: { leagueId: string }) {
                 </option>
               ))}
             </select>
+            <button
+              type="button"
+              onClick={() => setAssign((a) => ({ ...a, [g._id]: "" }))}
+              disabled={!valOf(g)}
+              className="grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:text-destructive disabled:opacity-30"
+              aria-label="Clear maker"
+            >
+              <X className="size-3.5" />
+            </button>
           </li>
         ))}
       </ul>

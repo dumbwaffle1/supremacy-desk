@@ -200,6 +200,14 @@ export const assignMakers = mutation({
       const game = await ctx.db.get(a.gameId);
       if (!game || game.leagueId !== leagueId) continue;
       if (game.status === "SETTLED" || game.status === "VOID") continue;
+
+      if (!a.player) {
+        // Empty = clear the maker.
+        if (game.makerPlayer !== undefined)
+          await ctx.db.patch(a.gameId, { makerPlayer: undefined });
+        continue;
+      }
+
       await ctx.db.patch(a.gameId, { makerPlayer: a.player });
       // The new maker can't also be a taker — drop any trade they had here.
       const selfTrades = await ctx.db
