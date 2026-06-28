@@ -50,6 +50,12 @@ const ResendMagicLink = Resend({
 
 export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
   providers: [ResendMagicLink],
+  // Stay signed in for the whole tournament: one login lasts ~90 days, refreshing
+  // automatically, unless inactive for 60+ days. So friends sign in once.
+  session: {
+    totalDurationMs: 1000 * 60 * 60 * 24 * 90, // 90 days
+    inactiveDurationMs: 1000 * 60 * 60 * 24 * 60, // 60 days idle
+  },
   callbacks: {
     // Send the magic link back to the origin the user signed in FROM (localhost
     // in dev, the Vercel/custom domain in prod), validated against an allowlist.
