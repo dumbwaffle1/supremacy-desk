@@ -6,11 +6,17 @@ import { api } from "../../convex/_generated/api";
 import { SignIn } from "@/components/SignIn";
 import { ClaimSeat } from "@/components/ClaimSeat";
 import { AppChrome } from "@/components/AppChrome";
+import { BrandMark } from "@/components/BrandMark";
 
 function FullScreen({ children }: { children: ReactNode }) {
   return (
-    <div className="mx-auto flex min-h-dvh max-w-md items-center justify-center px-6 text-sm text-muted-foreground">
-      {children}
+    <div className="mx-auto flex min-h-dvh max-w-md flex-col items-center justify-center gap-4 px-6">
+      <span className="animate-pulse">
+        <BrandMark className="size-10 rounded-xl" />
+      </span>
+      <span className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
+        {children}
+      </span>
     </div>
   );
 }
