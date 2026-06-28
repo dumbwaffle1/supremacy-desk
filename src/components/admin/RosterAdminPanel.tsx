@@ -9,8 +9,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { colorFor } from "@/config/constants";
 
-export function RosterAdminPanel() {
-  const players = useQuery(api.players.list);
+export function RosterAdminPanel({ leagueId }: { leagueId: string }) {
+  const lid = leagueId as Id<"leagues">;
+  const players = useQuery(api.players.list, { leagueId: lid });
   const addPlayer = useMutation(api.admin.addPlayer);
   const removePlayer = useMutation(api.admin.removePlayer);
   const renamePlayer = useMutation(api.users.adminRenamePlayer);
@@ -44,7 +45,7 @@ export function RosterAdminPanel() {
           e.preventDefault();
           if (!newName.trim()) return;
           wrap(async () => {
-            await addPlayer({ name: newName });
+            await addPlayer({ leagueId: lid, name: newName });
             setNewName("");
           });
         }}

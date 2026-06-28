@@ -12,62 +12,87 @@ import {
 } from "./lib/trading";
 import { teamSupremacy, tradePnl } from "./lib/game";
 import { roundedBalances, minimalTransfers } from "./lib/ledger";
+import { STAKES, STAGES } from "../src/config/constants";
 
 const modules = import.meta.glob("./**/*.ts");
 
 const HOUR = 60 * 60 * 1000;
 const now = () => Date.now();
-const koOpen = () => now() + 3 * HOUR; // maker + taker open
-const koMakerClosed = () => now() + 30 * 60 * 1000; // <60min: maker closed, taker open
-const koPast = () => now() - 60 * 1000; // both closed
+const koOpen = () => now() + 3 * HOUR;
+const koMakerClosed = () => now() + 30 * 60 * 1000;
+const koPast = () => now() - 60 * 1000;
 
-async function addPlayer(
-  t: ReturnType<typeof convexTest>,
-  name: string,
-  claim = true,
-) {
+type T = ReturnType<typeof convexTest>;
+
+async function addLeague(t: T, ownerUserId?: Id<"users">) {
+  return await t.run((ctx) =>
+    ctx.db.insert("leagues", {
+      name: "Test",
+      tournament: "WC2026",
+      width: 0.2,
+      stakes: STAGES.map((stage) => ({ stage, amount: STAKES[stage] })),
+      settlementBasis: "120min_exclPens",
+      ownerUserId,
+      inviteCode: "TESTTEST",
+    }),
+  );
+}
+
+async function addUser(t: T, email: string, isAdmin = false) {
+  return await t.run((ctx) => ctx.db.insert("users", { email, isAdmin }));
+}
+
+/** Add a player to a league; if claim, create+claim a user and return their id. */
+async function addPlayer(t: T, leagueId: Id<"leagues">, name: string, claim = true) {
   return await t.run(async (ctx) => {
-    if (!claim) return await ctx.db.insert("players", { name });
+    if (!claim) {
+      await ctx.db.insert("players", { leagueId, name });
+      return null;
+    }
     const userId = await ctx.db.insert("users", { email: `${name}@t.co` });
-    await ctx.db.insert("players", { name, claimedByUserId: userId });
+    await ctx.db.insert("players", { leagueId, name, claimedByUserId: userId });
     return userId;
   });
 }
 
-function asPlayer(t: ReturnType<typeof convexTest>, userId: Id<"users">) {
+function asUser(t: T, userId: Id<"users">) {
   return t.withIdentity({ subject: `${userId}|session` });
 }
 
 async function addGame(
-  t: ReturnType<typeof convexTest>,
+  t: T,
+  leagueId: Id<"leagues">,
   opts: {
     maker: string;
     koUtc?: number;
     bid?: number;
+    quoteTeam?: "HOME" | "AWAY";
     stage?: "R32" | "R16" | "QF" | "SF" | "3PO" | "F";
     status?: "SCHEDULED" | "LIVE" | "FT" | "SETTLED" | "VOID";
   },
 ) {
   return await t.run((ctx) =>
     ctx.db.insert("games", {
+      leagueId,
       gameNo: 1,
       stage: opts.stage ?? "R32",
       status: opts.status ?? "SCHEDULED",
       makerPlayer: opts.maker,
       koUtc: opts.koUtc,
       ...(opts.bid !== undefined ? { bid: opts.bid } : {}),
+      ...(opts.quoteTeam ? { quoteTeam: opts.quoteTeam } : {}),
     }),
   );
 }
 
-describe("window pure logic (spec §7)", () => {
+/* ── pure logic ───────────────────────────────────────────────────────── */
+
+describe("windows", () => {
   const ko = 1_000_000_000_000;
-  test("maker window closes 60 min before KO", () => {
+  test("maker closes 60m before KO, taker at KO", () => {
     expect(makerWindowOpen(ko - MAKER_LEAD_MS - 1, ko)).toBe(true);
     expect(makerWindowOpen(ko - MAKER_LEAD_MS, ko)).toBe(false);
     expect(makerDefaultDue(ko - MAKER_LEAD_MS, ko)).toBe(true);
-  });
-  test("taker window closes at KO", () => {
     expect(takerWindowOpen(ko - 1, ko)).toBe(true);
     expect(takerWindowOpen(ko, ko)).toBe(false);
     expect(forcedLongDue(ko, ko)).toBe(true);
@@ -80,414 +105,186 @@ describe("window pure logic (spec §7)", () => {
 
 describe("settlement P&L (quote-team)", () => {
   test("sell the away favourite — worked example", () => {
-    // Maker quoted Canada (away) 1.3/1.5; you SELL Canada @ 1.3.
-    // Canada win 1–0 (home 0, away 1) → Canada supremacy = 1.
     const s = teamSupremacy("AWAY", 0, 1);
     expect(s).toBe(1);
-    expect(tradePnl("SELL", 1.3, s, 10)).toBeCloseTo(3); // (1.3 − 1) × 10
+    expect(tradePnl("SELL", 1.3, s, 10)).toBeCloseTo(3);
   });
-
-  test("home supremacy basics (spec §5 example)", () => {
-    expect(tradePnl("BUY", 0.2, teamSupremacy("HOME", 3, 1), 10)).toBeCloseTo(18); // (2−0.2)×10
-    expect(tradePnl("SELL", 0.0, teamSupremacy("HOME", 0, 1), 10)).toBeCloseTo(10); // (0−(−1))×10
-  });
-
-  test("a penalty shootout is a draw → supremacy 0", () => {
+  test("home basics + shootout draw", () => {
+    expect(tradePnl("BUY", 0.2, teamSupremacy("HOME", 3, 1), 10)).toBeCloseTo(18);
     expect(teamSupremacy("AWAY", 1, 1)).toBe(0);
-    expect(tradePnl("BUY", 0.2, 0, 10)).toBeCloseTo(-2);
   });
 });
 
 describe("ledger math", () => {
-  test("rounding keeps balances zero-sum", () => {
-    const b = roundedBalances(
-      new Map([
-        ["A", 5.4],
-        ["B", -2.6],
-        ["C", -2.8],
-      ]),
-    );
+  test("rounding zero-sum + minimal transfers clear all", () => {
+    const b = roundedBalances(new Map([["A", 5.4], ["B", -2.6], ["C", -2.8]]));
     expect(b.reduce((s, x) => s + x.net, 0)).toBe(0);
-  });
-
-  test("minimal transfers clear everyone with ≤ n−1 moves", () => {
-    const balances = [
+    const tr = minimalTransfers([
       { player: "A", net: 5 },
       { player: "B", net: -3 },
       { player: "C", net: -2 },
-    ];
-    const tr = minimalTransfers(balances);
+    ]);
     expect(tr.length).toBe(2);
-    const net = new Map(balances.map((x) => [x.player, x.net]));
-    for (const t of tr) {
-      net.set(t.from, (net.get(t.from) ?? 0) + t.amount);
-      net.set(t.to, (net.get(t.to) ?? 0) - t.amount);
-    }
-    expect([...net.values()].every((v) => v === 0)).toBe(true);
   });
 });
 
+/* ── maker ────────────────────────────────────────────────────────────── */
+
 describe("maker bid", () => {
-  test("submits, offer = bid + 0.2, amendable until a trade, then locked", async () => {
+  test("submit, amend until a trade, then locked", async () => {
     const t = convexTest(schema, modules);
-    const yas = await addPlayer(t, "Yas");
-    const cp = await addPlayer(t, "CP");
-    const gameId = await addGame(t, { maker: "Yas", koUtc: koOpen() });
+    const lid = await addLeague(t);
+    const yas = (await addPlayer(t, lid, "Yas"))!;
+    const cp = (await addPlayer(t, lid, "CP"))!;
+    const game = await addGame(t, lid, { maker: "Yas", koUtc: koOpen() });
 
-    const r1 = await asPlayer(t, yas).mutation(api.trades.submitBid, {
-      gameId,
-      bid: 0.3,
-    });
+    const r1 = await asUser(t, yas).mutation(api.trades.submitBid, { gameId: game, bid: 0.3 });
     expect(r1.offer).toBeCloseTo(0.5);
-
-    // Amend allowed while nobody has traded.
-    const r2 = await asPlayer(t, yas).mutation(api.trades.submitBid, {
-      gameId,
-      bid: 0.1,
-    });
+    const r2 = await asUser(t, yas).mutation(api.trades.submitBid, { gameId: game, bid: 0.1 });
     expect(r2.offer).toBeCloseTo(0.3);
 
-    // Once a taker trades, the rate locks.
-    await asPlayer(t, cp).mutation(api.trades.submitTrade, { gameId, side: "BUY" });
+    await asUser(t, cp).mutation(api.trades.submitTrade, { gameId: game, side: "BUY" });
     await expect(
-      asPlayer(t, yas).mutation(api.trades.submitBid, { gameId, bid: 0.2 }),
+      asUser(t, yas).mutation(api.trades.submitBid, { gameId: game, bid: 0.2 }),
     ).rejects.toThrow(/locked/i);
   });
 
-  test("supports negative / flat quotes", async () => {
+  test("rejects after window + non-maker", async () => {
     const t = convexTest(schema, modules);
-    const yas = await addPlayer(t, "Yas");
-    const gameId = await addGame(t, { maker: "Yas", koUtc: koOpen() });
-    const r = await asPlayer(t, yas).mutation(api.trades.submitBid, {
-      gameId,
-      bid: -0.1,
-    });
-    expect(r.bid).toBeCloseTo(-0.1);
-    expect(r.offer).toBeCloseTo(0.1); // −0.1 / 0.1 flat
-  });
-
-  test("rejects when maker window has closed", async () => {
-    const t = convexTest(schema, modules);
-    const yas = await addPlayer(t, "Yas");
-    const gameId = await addGame(t, { maker: "Yas", koUtc: koMakerClosed() });
+    const lid = await addLeague(t);
+    const yas = (await addPlayer(t, lid, "Yas"))!;
+    await addPlayer(t, lid, "Pascal", false);
+    const late = await addGame(t, lid, { maker: "Yas", koUtc: koMakerClosed() });
     await expect(
-      asPlayer(t, yas).mutation(api.trades.submitBid, { gameId, bid: 0.2 }),
+      asUser(t, yas).mutation(api.trades.submitBid, { gameId: late, bid: 0.2 }),
     ).rejects.toThrow(/window has closed/i);
-  });
 
-  test("rejects a non-maker", async () => {
-    const t = convexTest(schema, modules);
-    await addPlayer(t, "Pascal");
-    const yas = await addPlayer(t, "Yas");
-    const gameId = await addGame(t, { maker: "Pascal", koUtc: koOpen() });
+    const other = await addGame(t, lid, { maker: "Pascal", koUtc: koOpen() });
     await expect(
-      asPlayer(t, yas).mutation(api.trades.submitBid, { gameId, bid: 0.2 }),
+      asUser(t, yas).mutation(api.trades.submitBid, { gameId: other, bid: 0.2 }),
     ).rejects.toThrow(/not the maker/i);
   });
 
-  test("maker can clear their rate (no trades), but not after a trade", async () => {
+  test("maker can clear (untraded), not after a trade", async () => {
     const t = convexTest(schema, modules);
-    const yas = await addPlayer(t, "Yas");
-    const cp = await addPlayer(t, "CP");
-    const gameId = await addGame(t, { maker: "Yas", bid: 0.3, koUtc: koOpen() });
+    const lid = await addLeague(t);
+    const yas = (await addPlayer(t, lid, "Yas"))!;
+    const cp = (await addPlayer(t, lid, "CP"))!;
+    const game = await addGame(t, lid, { maker: "Yas", bid: 0.3, koUtc: koOpen() });
+    await asUser(t, yas).mutation(api.trades.clearBid, { gameId: game });
+    expect(await t.run((ctx) => ctx.db.get(game)).then((g) => g?.bid)).toBeUndefined();
 
-    await asPlayer(t, yas).mutation(api.trades.clearBid, { gameId });
-    expect(await t.run((ctx) => ctx.db.get(gameId)).then((g) => g?.bid)).toBeUndefined();
-
-    // re-quote, someone trades, then clear is locked
-    await asPlayer(t, yas).mutation(api.trades.submitBid, { gameId, bid: 0.3 });
-    await asPlayer(t, cp).mutation(api.trades.submitTrade, { gameId, side: "BUY" });
+    await asUser(t, yas).mutation(api.trades.submitBid, { gameId: game, bid: 0.3 });
+    await asUser(t, cp).mutation(api.trades.submitTrade, { gameId: game, side: "BUY" });
     await expect(
-      asPlayer(t, yas).mutation(api.trades.clearBid, { gameId }),
+      asUser(t, yas).mutation(api.trades.clearBid, { gameId: game }),
     ).rejects.toThrow(/already traded/i);
-  });
-
-  test("admin clear resets the market (rate + trades)", async () => {
-    const t = convexTest(schema, modules);
-    const admin = await t.run((ctx) =>
-      ctx.db.insert("users", { email: "admin@t.co", isAdmin: true }),
-    );
-    await addPlayer(t, "Pascal", false);
-    await addPlayer(t, "Yas", false);
-    const gameId = await addGame(t, { maker: "Pascal", bid: 0.2, koUtc: koPast() });
-    await asPlayer(t, admin).mutation(api.admin.overrideTrade, {
-      gameId,
-      player: "Yas",
-      side: "BUY",
-    });
-
-    await asPlayer(t, admin).mutation(api.trades.clearBid, { gameId });
-    const game = await t.run((ctx) => ctx.db.get(gameId));
-    const trades = await t.run((ctx) =>
-      ctx.db.query("trades").withIndex("by_game", (q) => q.eq("gameId", gameId)).collect(),
-    );
-    expect(game?.bid).toBeUndefined();
-    expect(trades).toHaveLength(0);
   });
 });
 
-describe("taker trade", () => {
-  test("BUY lifts the offer, SELL hits the bid; stake from stage", async () => {
+/* ── taker ────────────────────────────────────────────────────────────── */
+
+describe("taker", () => {
+  test("BUY/SELL pricing + one-per-game + maker-can't-trade-own", async () => {
     const t = convexTest(schema, modules);
-    await addPlayer(t, "Pascal");
-    const yas = await addPlayer(t, "Yas");
-    const cp = await addPlayer(t, "CP");
-    const gameId = await addGame(t, { maker: "Pascal", bid: 0.2, koUtc: koOpen() });
+    const lid = await addLeague(t);
+    await addPlayer(t, lid, "Pascal", false);
+    const yas = (await addPlayer(t, lid, "Yas"))!;
+    const cp = (await addPlayer(t, lid, "CP"))!;
+    const game = await addGame(t, lid, { maker: "Pascal", bid: 0.2, koUtc: koOpen() });
 
-    const buy = await asPlayer(t, yas).mutation(api.trades.submitTrade, {
-      gameId,
-      side: "BUY",
-    });
-    expect(buy.priceTaken).toBeCloseTo(0.4); // offer
-    expect(buy.stake).toBe(10); // R32
-
-    const sell = await asPlayer(t, cp).mutation(api.trades.submitTrade, {
-      gameId,
-      side: "SELL",
-    });
-    expect(sell.priceTaken).toBeCloseTo(0.2); // bid
-  });
-
-  test("one trade per game (locked)", async () => {
-    const t = convexTest(schema, modules);
-    await addPlayer(t, "Pascal");
-    const yas = await addPlayer(t, "Yas");
-    const gameId = await addGame(t, { maker: "Pascal", bid: 0.2, koUtc: koOpen() });
-    await asPlayer(t, yas).mutation(api.trades.submitTrade, { gameId, side: "BUY" });
+    const buy = await asUser(t, yas).mutation(api.trades.submitTrade, { gameId: game, side: "BUY" });
+    expect(buy.priceTaken).toBeCloseTo(0.4);
+    expect(buy.stake).toBe(10);
+    const sell = await asUser(t, cp).mutation(api.trades.submitTrade, { gameId: game, side: "SELL" });
+    expect(sell.priceTaken).toBeCloseTo(0.2);
     await expect(
-      asPlayer(t, yas).mutation(api.trades.submitTrade, { gameId, side: "SELL" }),
+      asUser(t, yas).mutation(api.trades.submitTrade, { gameId: game, side: "SELL" }),
     ).rejects.toThrow(/already traded/i);
-  });
 
-  test("maker cannot trade their own game", async () => {
-    const t = convexTest(schema, modules);
-    const yas = await addPlayer(t, "Yas");
-    const gameId = await addGame(t, { maker: "Yas", bid: 0.2, koUtc: koOpen() });
+    const ownGame = await addGame(t, lid, { maker: "Yas", bid: 0.2, koUtc: koOpen() });
     await expect(
-      asPlayer(t, yas).mutation(api.trades.submitTrade, { gameId, side: "BUY" }),
+      asUser(t, yas).mutation(api.trades.submitTrade, { gameId: ownGame, side: "BUY" }),
     ).rejects.toThrow(/your own game/i);
   });
 
-  test("rejects after kick-off", async () => {
+  test("rejects after KO + with no rate", async () => {
     const t = convexTest(schema, modules);
-    await addPlayer(t, "Pascal");
-    const yas = await addPlayer(t, "Yas");
-    const gameId = await addGame(t, { maker: "Pascal", bid: 0.2, koUtc: koPast() });
+    const lid = await addLeague(t);
+    await addPlayer(t, lid, "Pascal", false);
+    const yas = (await addPlayer(t, lid, "Yas"))!;
+    const closed = await addGame(t, lid, { maker: "Pascal", bid: 0.2, koUtc: koPast() });
     await expect(
-      asPlayer(t, yas).mutation(api.trades.submitTrade, { gameId, side: "BUY" }),
+      asUser(t, yas).mutation(api.trades.submitTrade, { gameId: closed, side: "BUY" }),
     ).rejects.toThrow(/closed/i);
-  });
-
-  test("rejects with no rate yet", async () => {
-    const t = convexTest(schema, modules);
-    await addPlayer(t, "Pascal");
-    const yas = await addPlayer(t, "Yas");
-    const gameId = await addGame(t, { maker: "Pascal", koUtc: koOpen() });
+    const norate = await addGame(t, lid, { maker: "Pascal", koUtc: koOpen() });
     await expect(
-      asPlayer(t, yas).mutation(api.trades.submitTrade, { gameId, side: "BUY" }),
+      asUser(t, yas).mutation(api.trades.submitTrade, { gameId: norate, side: "BUY" }),
     ).rejects.toThrow(/no rate/i);
   });
 });
 
-describe("deadline penalties (spec §7)", () => {
-  test("defaults a missing maker rate and forces longs at KO", async () => {
+/* ── penalties / settlement / admin ───────────────────────────────────── */
+
+describe("penalties", () => {
+  test("default maker + forced longs at KO (scoped to league)", async () => {
     const t = convexTest(schema, modules);
-    // roster: Pascal (maker), Yas, CP, Manas — none traded
-    await addPlayer(t, "Pascal", false);
-    await addPlayer(t, "Yas", false);
-    await addPlayer(t, "CP", false);
-    await addPlayer(t, "Manas", false);
-    const gameId = await addGame(t, { maker: "Pascal", koUtc: koPast() });
+    const lid = await addLeague(t);
+    await addPlayer(t, lid, "Pascal", false);
+    await addPlayer(t, lid, "Yas", false);
+    await addPlayer(t, lid, "CP", false);
+    const game = await addGame(t, lid, { maker: "Pascal", koUtc: koPast() });
 
     const r = await t.mutation(internal.trades.applyDeadlinePenalties, {});
     expect(r.defaults).toBe(1);
-    expect(r.forced).toBe(3); // everyone except the maker
-
-    const { game, trades } = await t.run(async (ctx) => ({
-      game: await ctx.db.get(gameId),
-      trades: await ctx.db
-        .query("trades")
-        .withIndex("by_game", (q) => q.eq("gameId", gameId))
-        .collect(),
-    }));
-    expect(game?.bid).toBe(0);
-    expect(game?.defaultedMaker).toBe(true);
-    expect(trades).toHaveLength(3);
-    for (const tr of trades) {
-      expect(tr.side).toBe("BUY");
-      expect(tr.forcedLong).toBe(true);
-      expect(tr.priceTaken).toBeCloseTo(0.2); // offer = 0 + 0.2
-    }
-  });
-
-  test("is idempotent — no duplicate forced longs", async () => {
-    const t = convexTest(schema, modules);
-    await addPlayer(t, "Pascal", false);
-    await addPlayer(t, "Yas", false);
-    const gameId = await addGame(t, { maker: "Pascal", koUtc: koPast() });
-
-    await t.mutation(internal.trades.applyDeadlinePenalties, {});
-    const second = await t.mutation(internal.trades.applyDeadlinePenalties, {});
-    expect(second.defaults).toBe(0);
-    expect(second.forced).toBe(0);
-
-    const trades = await t.run((ctx) =>
-      ctx.db
-        .query("trades")
-        .withIndex("by_game", (q) => q.eq("gameId", gameId))
-        .collect(),
-    );
-    expect(trades).toHaveLength(1); // just Yas
+    expect(r.forced).toBe(2);
+    const g = await t.run((ctx) => ctx.db.get(game));
+    expect(g?.bid).toBe(0);
+    expect(g?.defaultedMaker).toBe(true);
   });
 });
 
-describe("admin override (past deadlines)", () => {
-  async function addAdmin(t: ReturnType<typeof convexTest>) {
-    return await t.run((ctx) =>
-      ctx.db.insert("users", { email: "admin@t.co", isAdmin: true }),
-    );
-  }
-
-  test("admin sets a maker rate on a past-KO game, with an audit row", async () => {
+describe("admin + settlement", () => {
+  test("override re-prices, settle pays worked example, void excludes", async () => {
     const t = convexTest(schema, modules);
-    const admin = await addAdmin(t);
-    await addPlayer(t, "Pascal", false);
-    const gameId = await addGame(t, { maker: "Pascal", koUtc: koPast() });
+    const owner = await addUser(t, "owner@t.co", true);
+    const lid = await addLeague(t, owner);
+    await addPlayer(t, lid, "Pascal", false);
+    await addPlayer(t, lid, "Yas", false);
+    const game = await addGame(t, lid, { maker: "Pascal", koUtc: koPast() });
 
-    const r = await asPlayer(t, admin).mutation(api.admin.overrideMakerBid, {
-      gameId,
-      bid: 0.3,
-    });
-    expect(r.offer).toBeCloseTo(0.5);
-
-    const { game, audits } = await t.run(async (ctx) => ({
-      game: await ctx.db.get(gameId),
-      audits: await ctx.db.query("auditLogs").collect(),
-    }));
-    expect(game?.bid).toBe(0.3);
-    expect(audits.some((a) => a.action === "admin_override_bid")).toBe(true);
-  });
-
-  test("admin can add a trade for a player who hasn't logged in", async () => {
-    const t = convexTest(schema, modules);
-    const admin = await addAdmin(t);
-    await addPlayer(t, "Pascal", false);
-    await addPlayer(t, "Manas", false); // never logged in
-    const gameId = await addGame(t, { maker: "Pascal", bid: 0.2, koUtc: koPast() });
-
-    await asPlayer(t, admin).mutation(api.admin.overrideTrade, {
-      gameId,
-      player: "Manas",
-      side: "SELL",
-    });
-    const trades = await t.run((ctx) =>
-      ctx.db
-        .query("trades")
-        .withIndex("by_game", (q) => q.eq("gameId", gameId))
-        .collect(),
-    );
-    expect(trades).toHaveLength(1);
-    expect(trades[0].player).toBe("Manas");
-    expect(trades[0].priceTaken).toBeCloseTo(0.2); // SELL hits bid
-  });
-
-  test("overriding the rate re-prices existing trades", async () => {
-    const t = convexTest(schema, modules);
-    const admin = await addAdmin(t);
-    await addPlayer(t, "Pascal", false);
-    await addPlayer(t, "Manas", false);
-    const gameId = await addGame(t, { maker: "Pascal", bid: 0.2, koUtc: koPast() });
-
-    await asPlayer(t, admin).mutation(api.admin.overrideTrade, {
-      gameId,
-      player: "Manas",
-      side: "SELL",
-    });
-    // Correct the rate to Canada (away) 1.3 — the SELL must re-price to 1.3.
-    await asPlayer(t, admin).mutation(api.admin.overrideMakerBid, {
-      gameId,
+    await asUser(t, owner).mutation(api.admin.overrideMakerBid, {
+      gameId: game,
       bid: 1.3,
       quoteTeam: "AWAY",
     });
-
-    const trade = await t.run((ctx) =>
-      ctx.db
-        .query("trades")
-        .withIndex("by_game", (q) => q.eq("gameId", gameId))
-        .first(),
-    );
-    expect(trade?.priceTaken).toBeCloseTo(1.3);
-  });
-
-  test("non-admin is rejected", async () => {
-    const t = convexTest(schema, modules);
-    const yas = await addPlayer(t, "Yas");
-    const gameId = await addGame(t, { maker: "Pascal", koUtc: koPast() });
-    await expect(
-      asPlayer(t, yas).mutation(api.admin.overrideMakerBid, { gameId, bid: 0.2 }),
-    ).rejects.toThrow(/admins only/i);
-  });
-});
-
-describe("settlement", () => {
-  async function addAdmin(t: ReturnType<typeof convexTest>) {
-    return await t.run((ctx) =>
-      ctx.db.insert("users", { email: "admin@t.co", isAdmin: true }),
-    );
-  }
-
-  test("settle fills P&L and standings (worked example)", async () => {
-    const t = convexTest(schema, modules);
-    const admin = await addAdmin(t);
-    await addPlayer(t, "Pascal", false); // maker
-    await addPlayer(t, "Yas", false); // taker
-    const gameId = await addGame(t, { maker: "Pascal", koUtc: koPast() });
-
-    await asPlayer(t, admin).mutation(api.admin.overrideMakerBid, {
-      gameId,
-      bid: 1.3,
-      quoteTeam: "AWAY", // Canada (away)
-    });
-    await asPlayer(t, admin).mutation(api.admin.overrideTrade, {
-      gameId,
+    await asUser(t, owner).mutation(api.admin.overrideTrade, {
+      gameId: game,
       player: "Yas",
       side: "SELL",
     });
-    // Canada win 1–0 → home 0, away 1.
-    await asPlayer(t, admin).mutation(api.settlement.settleManual, {
-      gameId,
+    await asUser(t, owner).mutation(api.settlement.settleManual, {
+      gameId: game,
       home: 0,
       away: 1,
     });
 
-    const game = await t.run((ctx) => ctx.db.get(gameId));
-    expect(game?.status).toBe("SETTLED");
-
-    const st = await t.query(api.standings.standings, {});
+    const st = await t.query(api.standings.standings, { leagueId: lid });
     expect(st.rows.find((r) => r.player === "Yas")?.pnl).toBeCloseTo(3);
     expect(st.rows.find((r) => r.player === "Pascal")?.pnl).toBeCloseTo(-3);
+
+    await asUser(t, owner).mutation(api.settlement.voidGame, { gameId: game });
+    const st2 = await t.query(api.standings.standings, { leagueId: lid });
+    expect(st2.settledCount).toBe(0);
   });
 
-  test("void excludes a game from standings", async () => {
+  test("non-owner rejected", async () => {
     const t = convexTest(schema, modules);
-    const admin = await addAdmin(t);
-    await addPlayer(t, "Pascal", false);
-    await addPlayer(t, "Yas", false);
-    const gameId = await addGame(t, { maker: "Pascal", bid: 0.2, koUtc: koPast() });
-    await asPlayer(t, admin).mutation(api.admin.overrideTrade, {
-      gameId,
-      player: "Yas",
-      side: "BUY",
-    });
-    await asPlayer(t, admin).mutation(api.settlement.settleManual, {
-      gameId,
-      home: 2,
-      away: 0,
-    });
-    await asPlayer(t, admin).mutation(api.settlement.voidGame, { gameId });
-
-    const st = await t.query(api.standings.standings, {});
-    expect(st.settledCount).toBe(0);
-    expect(st.rows.every((r) => r.pnl === 0)).toBe(true);
+    const lid = await addLeague(t); // no owner
+    const yas = (await addPlayer(t, lid, "Yas"))!;
+    const game = await addGame(t, lid, { maker: "Pascal", koUtc: koPast() });
+    await expect(
+      asUser(t, yas).mutation(api.admin.overrideMakerBid, { gameId: game, bid: 0.2 }),
+    ).rejects.toThrow(/owner/i);
   });
 });

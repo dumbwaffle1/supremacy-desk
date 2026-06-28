@@ -4,13 +4,14 @@ import Link from "next/link";
 import { useQuery } from "convex/react";
 import { ChevronRight } from "lucide-react";
 import { api } from "../../convex/_generated/api";
+import type { Id } from "../../convex/_generated/dataModel";
 import { STAGES, STAGE_LABEL, STAKES, type Stage } from "@/config/constants";
 import { useNow } from "@/lib/useNow";
 import { displayStatus, STATUS_STYLE } from "@/lib/gameDisplay";
 import { Flag } from "@/lib/flags";
 
-export function GamesList() {
-  const games = useQuery(api.games.list);
+export function GamesList({ leagueId }: { leagueId: string }) {
+  const games = useQuery(api.games.list, { leagueId: leagueId as Id<"leagues"> });
   const now = useNow(30000);
 
   if (games === undefined) {
@@ -56,7 +57,7 @@ export function GamesList() {
               return (
                 <li key={g._id}>
                   <Link
-                    href={`/games/${g._id}`}
+                    href={`/l/${leagueId}/games/${g._id}`}
                     className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-accent/40"
                   >
                     <div className="min-w-0 flex-1">

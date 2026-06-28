@@ -13,6 +13,7 @@ import {
 } from "recharts";
 import { Crown } from "lucide-react";
 import { api } from "../../convex/_generated/api";
+import type { Id } from "../../convex/_generated/dataModel";
 import { colorFor, STAGE_LABEL, type Stage } from "@/config/constants";
 import { Flag } from "@/lib/flags";
 
@@ -50,8 +51,8 @@ function countdown(ms: number): string {
 
 type Point = Record<string, number | string>;
 
-function EquityCurve() {
-  const data = useQuery(api.standings.equityCurve);
+function EquityCurve({ leagueId }: { leagueId: Id<"leagues"> }) {
+  const data = useQuery(api.standings.equityCurve, { leagueId });
 
   if (data === undefined) {
     return <div className="panel h-[232px] animate-pulse rounded-2xl" />;
@@ -131,8 +132,8 @@ function EquityCurve() {
 
 /* ── standings ────────────────────────────────────────────────────────── */
 
-function Standings() {
-  const data = useQuery(api.standings.standings);
+function Standings({ leagueId }: { leagueId: Id<"leagues"> }) {
+  const data = useQuery(api.standings.standings, { leagueId });
   if (data === undefined) {
     return <div className="panel h-40 animate-pulse rounded-2xl" />;
   }
@@ -179,8 +180,8 @@ function Standings() {
 
 /* ── up next ──────────────────────────────────────────────────────────── */
 
-function UpNext() {
-  const games = useQuery(api.games.list);
+function UpNext({ leagueId }: { leagueId: Id<"leagues"> }) {
+  const games = useQuery(api.games.list, { leagueId });
   const now = useNow();
 
   if (games === undefined) {
@@ -259,16 +260,17 @@ function UpNext() {
 
 /* ── desk ─────────────────────────────────────────────────────────────── */
 
-export function Desk() {
+export function Desk({ leagueId }: { leagueId: string }) {
+  const lid = leagueId as Id<"leagues">;
   return (
     <div className="space-y-4">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Desk</h1>
         <p className="text-sm text-muted-foreground">Cumulative P&amp;L · live</p>
       </div>
-      <EquityCurve />
-      <Standings />
-      <UpNext />
+      <EquityCurve leagueId={lid} />
+      <Standings leagueId={lid} />
+      <UpNext leagueId={lid} />
     </div>
   );
 }

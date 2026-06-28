@@ -6,22 +6,28 @@ import { motion } from "motion/react";
 import { BookOpen, LineChart, ListOrdered, Scale, Shield } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const TABS = [
-  { href: "/", label: "Desk", icon: LineChart, adminOnly: false },
-  { href: "/games", label: "Games", icon: ListOrdered, adminOnly: false },
-  { href: "/settle", label: "Settle", icon: Scale, adminOnly: false },
-  { href: "/rules", label: "Rules", icon: BookOpen, adminOnly: false },
-  { href: "/admin", label: "Admin", icon: Shield, adminOnly: true },
-] as const;
-
-function isActive(pathname: string, href: string) {
-  if (href === "/") return pathname === "/";
-  return pathname === href || pathname.startsWith(`${href}/`);
-}
-
-export function BottomTabBar({ isAdmin = false }: { isAdmin?: boolean }) {
+export function BottomTabBar({
+  leagueId,
+  isAdmin = false,
+}: {
+  leagueId: string;
+  isAdmin?: boolean;
+}) {
   const pathname = usePathname();
-  const tabs = TABS.filter((t) => !t.adminOnly || isAdmin);
+  const base = `/l/${leagueId}`;
+
+  const tabs = [
+    { href: base, label: "Desk", icon: LineChart, exact: true },
+    { href: `${base}/games`, label: "Games", icon: ListOrdered },
+    { href: `${base}/settle`, label: "Settle", icon: Scale },
+    { href: `${base}/rules`, label: "Rules", icon: BookOpen },
+    ...(isAdmin
+      ? [{ href: `${base}/admin`, label: "Admin", icon: Shield }]
+      : []),
+  ];
+
+  const isActive = (href: string, exact?: boolean) =>
+    exact ? pathname === href : pathname === href || pathname.startsWith(`${href}/`);
 
   return (
     <nav
@@ -29,8 +35,8 @@ export function BottomTabBar({ isAdmin = false }: { isAdmin?: boolean }) {
       style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
     >
       <ul className="mx-auto flex max-w-md items-stretch">
-        {tabs.map(({ href, label, icon: Icon }) => {
-          const active = isActive(pathname, href);
+        {tabs.map(({ href, label, icon: Icon, exact }) => {
+          const active = isActive(href, exact);
           return (
             <li key={href} className="flex-1">
               <Link

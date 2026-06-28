@@ -2,6 +2,7 @@
 
 import { useQuery } from "convex/react";
 import { api } from "../../../convex/_generated/api";
+import type { Id } from "../../../convex/_generated/dataModel";
 
 function when(ts: number): string {
   return new Date(ts).toLocaleString(undefined, {
@@ -21,8 +22,10 @@ function summary(a: { action: string; after: unknown; before: unknown }): string
   return bits.join(" · ");
 }
 
-export function AuditLogPanel() {
-  const logs = useQuery(api.auditLogs.recent);
+export function AuditLogPanel({ leagueId }: { leagueId: string }) {
+  const logs = useQuery(api.auditLogs.recent, {
+    leagueId: leagueId as Id<"leagues">,
+  });
   if (logs === undefined) {
     return <div className="panel h-32 animate-pulse rounded-2xl" />;
   }

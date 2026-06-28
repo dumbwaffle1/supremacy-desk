@@ -10,7 +10,7 @@ import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { settlementScore, mapStatus } from "./fixtures";
 import { teamSupremacy, tradePnl } from "./lib/game";
-import { requireAdmin } from "./admin";
+import { requireLeagueAdmin } from "./leagues";
 
 const API_MATCHES = "https://api.football-data.org/v4/competitions/WC/matches";
 
@@ -49,6 +49,7 @@ async function applySettlement(
     settleCandidateAway: undefined,
   });
   await ctx.db.insert("auditLogs", {
+    leagueId: game.leagueId,
     actor,
     action: "settle",
     gameId: game._id,
@@ -98,45 +99,44 @@ export const ingestScores = internalMutation({
     let live = 0;
 
     for (const u of updates) {
-      const game = await ctx.db
+      // One fixture can back games in many leagues — update each.
+      const games = await ctx.db
         .query("games")
         .withIndex("by_fixtureId", (q) => q.eq("fixtureId", u.fixtureId))
-        .first();
-      if (!game || game.status === "SETTLED" || game.status === "VOID") continue;
-
+        .collect();
       const liveHome = u.liveHome ?? undefined;
       const liveAway = u.liveAway ?? undefined;
 
-      if (u.isFinal && u.settleHome !== null && u.settleAway !== null) {
-        if (
-          game.settleCandidateHome === u.settleHome &&
-          game.settleCandidateAway === u.settleAway
-        ) {
-          await applySettlement(ctx, game, u.settleHome, u.settleAway, "system");
-          settled++;
-          console.log(
-            `[settle] #${game.gameNo} ${game.home} ${u.settleHome}-${u.settleAway} ${game.away}`,
-          );
+      for (const game of games) {
+        if (game.status === "SETTLED" || game.status === "VOID") continue;
+
+        if (u.isFinal && u.settleHome !== null && u.settleAway !== null) {
+          if (
+            game.settleCandidateHome === u.settleHome &&
+            game.settleCandidateAway === u.settleAway
+          ) {
+            await applySettlement(ctx, game, u.settleHome, u.settleAway, "system");
+            settled++;
+          } else {
+            await ctx.db.patch(game._id, {
+              status: "FT",
+              liveHome,
+              liveAway,
+              settleCandidateHome: u.settleHome,
+              settleCandidateAway: u.settleAway,
+            });
+            pending++;
+          }
         } else {
-          // First final sighting — record candidate, wait for confirmation.
           await ctx.db.patch(game._id, {
-            status: "FT",
+            status: mapStatus(u.status),
             liveHome,
             liveAway,
-            settleCandidateHome: u.settleHome,
-            settleCandidateAway: u.settleAway,
+            settleCandidateHome: undefined,
+            settleCandidateAway: undefined,
           });
-          pending++;
+          live++;
         }
-      } else {
-        await ctx.db.patch(game._id, {
-          status: mapStatus(u.status),
-          liveHome,
-          liveAway,
-          settleCandidateHome: undefined,
-          settleCandidateAway: undefined,
-        });
-        live++;
       }
     }
     return { settled, pending, live };
@@ -213,9 +213,9 @@ export const settleManual = mutation({
     reason: v.optional(v.string()),
   },
   handler: async (ctx, { gameId, home, away, reason }) => {
-    const { actor } = await requireAdmin(ctx);
     const game = await ctx.db.get(gameId);
-    if (!game) throw new Error("No such game.");
+    if (!game || !game.leagueId) throw new Error("No such game.");
+    const { actor } = await requireLeagueAdmin(ctx, game.leagueId);
     if (
       !Number.isInteger(home) ||
       !Number.isInteger(away) ||
@@ -239,9 +239,9 @@ export const settleManual = mutation({
 export const voidGame = mutation({
   args: { gameId: v.id("games"), reason: v.optional(v.string()) },
   handler: async (ctx, { gameId, reason }) => {
-    const { actor } = await requireAdmin(ctx);
     const game = await ctx.db.get(gameId);
-    if (!game) throw new Error("No such game.");
+    if (!game || !game.leagueId) throw new Error("No such game.");
+    const { actor } = await requireLeagueAdmin(ctx, game.leagueId);
 
     const trades = await ctx.db
       .query("trades")
@@ -251,6 +251,7 @@ export const voidGame = mutation({
 
     await ctx.db.patch(gameId, { status: "VOID", settledAt: Date.now() });
     await ctx.db.insert("auditLogs", {
+      leagueId: game.leagueId,
       actor,
       action: "void",
       gameId,

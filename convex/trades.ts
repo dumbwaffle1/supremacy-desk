@@ -1,5 +1,11 @@
 import { v } from "convex/values";
-import { mutation, internalMutation, query, QueryCtx, MutationCtx } from "./_generated/server";
+import {
+  mutation,
+  internalMutation,
+  query,
+  MutationCtx,
+} from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { ADMIN_EMAIL } from "../src/config/constants";
 import { offerFor, round2 } from "./lib/game";
@@ -11,16 +17,18 @@ import {
   takerWindowOpen,
 } from "./lib/trading";
 
-/** Resolve the caller's claimed player name from the auth context (never trust
- *  a client-sent name — spec §2). */
-async function requireClaimedPlayer(
-  ctx: QueryCtx,
-): Promise<{ userId: import("./_generated/dataModel").Id<"users">; player: string }> {
+/** The caller's claimed player name in a league (from the auth context). */
+async function claimedPlayer(
+  ctx: MutationCtx,
+  leagueId: Id<"leagues">,
+): Promise<{ userId: Id<"users">; player: string }> {
   const userId = await getAuthUserId(ctx);
   if (!userId) throw new Error("Sign in first.");
   const player = await ctx.db
     .query("players")
-    .withIndex("by_claimedBy", (q) => q.eq("claimedByUserId", userId))
+    .withIndex("by_league_claimedBy", (q) =>
+      q.eq("leagueId", leagueId).eq("claimedByUserId", userId),
+    )
     .first();
   if (!player) throw new Error("Claim a seat first.");
   return { userId, player: player.name };
@@ -34,16 +42,15 @@ export const submitBid = mutation({
     quoteTeam: v.optional(v.union(v.literal("HOME"), v.literal("AWAY"))),
   },
   handler: async (ctx, { gameId, bid, quoteTeam }) => {
-    const { player } = await requireClaimedPlayer(ctx);
     const game = await ctx.db.get(gameId);
-    if (!game) throw new Error("No such game.");
+    if (!game || !game.leagueId) throw new Error("No such game.");
+    const { player } = await claimedPlayer(ctx, game.leagueId);
     if (game.status === "SETTLED" || game.status === "VOID")
       throw new Error("This game is closed.");
     if (game.makerPlayer !== player)
       throw new Error("You're not the maker for this game.");
     if (!makerWindowOpen(Date.now(), game.koUtc))
       throw new Error("The maker window has closed (under 60 min to kick-off).");
-    // Amendable until someone trades on it, then locked.
     const anyTrade = await ctx.db
       .query("trades")
       .withIndex("by_game", (q) => q.eq("gameId", gameId))
@@ -63,13 +70,13 @@ export const submitBid = mutation({
   },
 });
 
-/** Taker BUYs (long @ offer) or SELLs (short @ bid); one action per game; locked. */
+/** Taker BUYs (long @ offer) or SELLs (short @ bid); one action per game. */
 export const submitTrade = mutation({
   args: { gameId: v.id("games"), side: v.union(v.literal("BUY"), v.literal("SELL")) },
   handler: async (ctx, { gameId, side }) => {
-    const { player } = await requireClaimedPlayer(ctx);
     const game = await ctx.db.get(gameId);
-    if (!game) throw new Error("No such game.");
+    if (!game || !game.leagueId) throw new Error("No such game.");
+    const { player } = await claimedPlayer(ctx, game.leagueId);
     if (game.status === "SETTLED" || game.status === "VOID")
       throw new Error("This game is closed.");
     if (game.makerPlayer === player)
@@ -89,9 +96,10 @@ export const submitTrade = mutation({
 
     const offer = offerFor(game.bid);
     const priceTaken = side === "BUY" ? offer : game.bid;
-    const stake = await stakeOf(ctx, game.stage);
+    const stake = await stakeOf(ctx, game.leagueId, game.stage);
 
     await ctx.db.insert("trades", {
+      leagueId: game.leagueId,
       gameId,
       player,
       side,
@@ -103,8 +111,66 @@ export const submitTrade = mutation({
   },
 });
 
-/** One-off cleanup: re-price every trade to its game's current bid/offer
- *  (BUY → offer, SELL → bid). Fixes prices snapshotted under an older model. */
+/** Clear a game's rate. Maker (window open, untraded) or the league owner
+ *  (anytime — also clears trades). Audited when done by an owner. */
+export const clearBid = mutation({
+  args: { gameId: v.id("games") },
+  handler: async (ctx, { gameId }) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Sign in first.");
+    const game = await ctx.db.get(gameId);
+    if (!game || !game.leagueId) throw new Error("No such game.");
+    if (game.status === "SETTLED" || game.status === "VOID")
+      throw new Error("This game is closed.");
+
+    const user = await ctx.db.get(userId);
+    const league = await ctx.db.get(game.leagueId);
+    const isAdmin =
+      league?.ownerUserId === userId ||
+      !!user?.isAdmin ||
+      (user?.email ?? "").toLowerCase() === ADMIN_EMAIL.toLowerCase();
+    const claimed = await ctx.db
+      .query("players")
+      .withIndex("by_league_claimedBy", (q) =>
+        q.eq("leagueId", game.leagueId!).eq("claimedByUserId", userId),
+      )
+      .first();
+    const isMaker = claimed?.name === game.makerPlayer;
+
+    const trades = await ctx.db
+      .query("trades")
+      .withIndex("by_game", (q) => q.eq("gameId", gameId))
+      .collect();
+
+    if (!isAdmin) {
+      if (!isMaker) throw new Error("Only the maker or the owner can clear this.");
+      if (!makerWindowOpen(Date.now(), game.koUtc))
+        throw new Error("The maker window has closed.");
+      if (trades.length > 0) throw new Error("Locked — someone has already traded.");
+    } else {
+      await Promise.all(trades.map((t) => ctx.db.delete(t._id)));
+    }
+
+    await ctx.db.patch(gameId, {
+      bid: undefined,
+      quoteTeam: undefined,
+      makerSubmittedAt: undefined,
+      defaultedMaker: undefined,
+    });
+    if (isAdmin) {
+      await ctx.db.insert("auditLogs", {
+        leagueId: game.leagueId,
+        actor: user?.email ?? "owner",
+        action: "clear_rate",
+        gameId,
+        before: { bid: game.bid ?? null, clearedTrades: trades.length },
+      });
+    }
+    return { ok: true as const };
+  },
+});
+
+/** One-off: re-price every trade to its game's current bid/offer. */
 export const repriceTrades = internalMutation({
   args: {},
   handler: async (ctx) => {
@@ -129,64 +195,6 @@ export const repriceTrades = internalMutation({
   },
 });
 
-/** Clear a game's rate (back to "no rate"). Maker may clear while the window is
- *  open and nobody has traded; an admin may clear anytime, which also removes
- *  any trades on the market (a reset). Audited when done by an admin. */
-export const clearBid = mutation({
-  args: { gameId: v.id("games") },
-  handler: async (ctx, { gameId }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Sign in first.");
-    const game = await ctx.db.get(gameId);
-    if (!game) throw new Error("No such game.");
-    if (game.status === "SETTLED" || game.status === "VOID")
-      throw new Error("This game is closed.");
-
-    const user = await ctx.db.get(userId);
-    const isAdmin =
-      !!user?.isAdmin ||
-      (user?.email ?? "").toLowerCase() === ADMIN_EMAIL.toLowerCase();
-    const claimed = await ctx.db
-      .query("players")
-      .withIndex("by_claimedBy", (q) => q.eq("claimedByUserId", userId))
-      .first();
-    const isMaker = claimed?.name === game.makerPlayer;
-
-    const trades = await ctx.db
-      .query("trades")
-      .withIndex("by_game", (q) => q.eq("gameId", gameId))
-      .collect();
-
-    if (!isAdmin) {
-      if (!isMaker) throw new Error("Only the maker or an admin can clear this.");
-      if (!makerWindowOpen(Date.now(), game.koUtc))
-        throw new Error("The maker window has closed.");
-      if (trades.length > 0)
-        throw new Error("Locked — someone has already traded.");
-    } else {
-      // Admin reset clears the trades too.
-      await Promise.all(trades.map((t) => ctx.db.delete(t._id)));
-    }
-
-    await ctx.db.patch(gameId, {
-      bid: undefined,
-      quoteTeam: undefined,
-      makerSubmittedAt: undefined,
-      defaultedMaker: undefined,
-    });
-
-    if (isAdmin) {
-      await ctx.db.insert("auditLogs", {
-        actor: user?.email ?? "admin",
-        action: "clear_rate",
-        gameId,
-        before: { bid: game.bid ?? null, clearedTrades: trades.length },
-      });
-    }
-    return { ok: true as const };
-  },
-});
-
 /** All trades for a game (the book). */
 export const forGame = query({
   args: { gameId: v.id("games") },
@@ -199,26 +207,22 @@ export const forGame = query({
 });
 
 /**
- * Apply deadline penalties (spec §7), run by a short cron:
- *  - at KO − 60min with no maker rate → default bid 0.0 / offer 0.2 + defaultedMaker
- *  - at KO, any non-maker roster player with no trade → forced long @ offer
- * Idempotent: skips games already handled, never double-creates trades.
+ * Deadline penalties across all leagues' games: default a missing maker rate,
+ * force-long non-trading roster players (scoped to each game's league).
  */
 export const applyDeadlinePenalties = internalMutation({
   args: {},
   handler: async (ctx: MutationCtx) => {
     const now = Date.now();
     const games = await ctx.db.query("games").collect();
-    const players = await ctx.db.query("players").collect();
-    const stakes = await getStakes(ctx);
     let defaults = 0;
     let forced = 0;
 
     for (const game of games) {
+      if (!game.leagueId) continue;
       if (game.status === "SETTLED" || game.status === "VOID") continue;
       if (game.koUtc === undefined) continue;
 
-      // 1) Default the maker rate if missing past the window.
       if (game.bid === undefined && makerDefaultDue(now, game.koUtc)) {
         await ctx.db.patch(game._id, {
           bid: DEFAULT_BID,
@@ -229,6 +233,7 @@ export const applyDeadlinePenalties = internalMutation({
         game.bid = DEFAULT_BID;
         defaults++;
         await ctx.db.insert("auditLogs", {
+          leagueId: game.leagueId,
           actor: "system",
           action: "maker_defaulted",
           gameId: game._id,
@@ -236,10 +241,13 @@ export const applyDeadlinePenalties = internalMutation({
         });
       }
 
-      // 2) Force-long any non-maker player who hasn't traded by KO.
       if (now >= game.koUtc && game.bid !== undefined) {
         const offer = offerFor(game.bid);
-        const stake = stakes[game.stage];
+        const stake = (await getStakes(ctx, game.leagueId))[game.stage];
+        const players = await ctx.db
+          .query("players")
+          .withIndex("by_league", (q) => q.eq("leagueId", game.leagueId!))
+          .collect();
         const trades = await ctx.db
           .query("trades")
           .withIndex("by_game", (q) => q.eq("gameId", game._id))
@@ -250,6 +258,7 @@ export const applyDeadlinePenalties = internalMutation({
           if (p.name === game.makerPlayer) continue;
           if (traded.has(p.name)) continue;
           await ctx.db.insert("trades", {
+            leagueId: game.leagueId,
             gameId: game._id,
             player: p.name,
             side: "BUY",
@@ -262,7 +271,6 @@ export const applyDeadlinePenalties = internalMutation({
         }
       }
     }
-
     return { defaults, forced };
   },
 });

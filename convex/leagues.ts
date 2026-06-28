@@ -1,0 +1,266 @@
+import { v } from "convex/values";
+import { mutation, query, MutationCtx } from "./_generated/server";
+import type { Id } from "./_generated/dataModel";
+import { getAuthUserId } from "@convex-dev/auth/server";
+import { makeInviteCode } from "./lib/invite";
+import { getStakes } from "./tournament";
+import { stageValidator } from "./schema";
+import {
+  ADMIN_EMAIL,
+  SETTLEMENT_BASIS,
+  STAGES,
+  STAKES,
+  WIDTH,
+} from "../src/config/constants";
+
+/** Owner of the league (or a global super-admin) may run admin actions on it. */
+export async function requireLeagueAdmin(
+  ctx: MutationCtx,
+  leagueId: Id<"leagues">,
+): Promise<{ actor: string; userId: Id<"users"> }> {
+  const userId = await getAuthUserId(ctx);
+  if (!userId) throw new Error("Sign in first.");
+  const league = await ctx.db.get(leagueId);
+  if (!league) throw new Error("No such league.");
+  const user = await ctx.db.get(userId);
+  const ok =
+    league.ownerUserId === userId ||
+    !!user?.isAdmin ||
+    (user?.email ?? "").toLowerCase() === ADMIN_EMAIL.toLowerCase();
+  if (!ok) throw new Error("Only the league owner can do that.");
+  return { actor: user?.email ?? "owner", userId };
+}
+
+/** Copy the fixture games (no maker/bid/trades) from a source league. */
+async function seedGamesFrom(
+  ctx: MutationCtx,
+  leagueId: Id<"leagues">,
+  sourceLeagueId: Id<"leagues">,
+) {
+  const src = await ctx.db
+    .query("games")
+    .withIndex("by_league", (q) => q.eq("leagueId", sourceLeagueId))
+    .collect();
+  for (const g of src) {
+    await ctx.db.insert("games", {
+      leagueId,
+      fixtureId: g.fixtureId,
+      gameNo: g.gameNo,
+      stage: g.stage,
+      round: g.round,
+      home: g.home,
+      away: g.away,
+      koUtc: g.koUtc,
+      status: g.status === "SETTLED" ? "FT" : g.status,
+    });
+  }
+}
+
+/** Leagues you own or have joined, enriched for the homepage. */
+export const mine = query({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) return [];
+
+    const owned = await ctx.db
+      .query("leagues")
+      .withIndex("by_owner", (q) => q.eq("ownerUserId", userId))
+      .collect();
+    const memberships = await ctx.db
+      .query("memberships")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .collect();
+    const memberLeagues = await Promise.all(
+      memberships.map((m) => ctx.db.get(m.leagueId)),
+    );
+
+    const seen = new Set<string>();
+    const leagues = [];
+    for (const l of [...owned, ...memberLeagues]) {
+      if (!l || seen.has(l._id)) continue;
+      seen.add(l._id);
+      leagues.push(l);
+    }
+
+    return Promise.all(
+      leagues.map(async (l) => {
+        const players = await ctx.db
+          .query("players")
+          .withIndex("by_league", (q) => q.eq("leagueId", l._id))
+          .collect();
+        const settled = await ctx.db
+          .query("games")
+          .withIndex("by_league_status", (q) =>
+            q.eq("leagueId", l._id).eq("status", "SETTLED"),
+          )
+          .collect();
+        return {
+          _id: l._id,
+          name: l.name,
+          tournament: l.tournament,
+          isOwner: l.ownerUserId === userId,
+          myPlayer: players.find((p) => p.claimedByUserId === userId)?.name ?? null,
+          playerCount: players.length,
+          settledCount: settled.length,
+        };
+      }),
+    );
+  },
+});
+
+/** One league + the viewer's role/seat. */
+export const get = query({
+  args: { leagueId: v.id("leagues") },
+  handler: async (ctx, { leagueId }) => {
+    const league = await ctx.db.get(leagueId);
+    if (!league) return null;
+
+    const userId = await getAuthUserId(ctx);
+    let player: string | null = null;
+    let isOwner = false;
+    let isAdmin = false;
+    let isMember = false;
+    if (userId) {
+      const user = await ctx.db.get(userId);
+      isOwner = league.ownerUserId === userId;
+      isAdmin =
+        isOwner ||
+        !!user?.isAdmin ||
+        (user?.email ?? "").toLowerCase() === ADMIN_EMAIL.toLowerCase();
+      const p = await ctx.db
+        .query("players")
+        .withIndex("by_league_claimedBy", (q) =>
+          q.eq("leagueId", leagueId).eq("claimedByUserId", userId),
+        )
+        .first();
+      player = p?.name ?? null;
+      const m = await ctx.db
+        .query("memberships")
+        .withIndex("by_league_user", (q) =>
+          q.eq("leagueId", leagueId).eq("userId", userId),
+        )
+        .first();
+      isMember = !!m || isOwner || !!p;
+    }
+
+    return {
+      _id: league._id,
+      name: league.name,
+      tournament: league.tournament,
+      width: league.width,
+      stakes: await getStakes(ctx, leagueId),
+      inviteCode: isMember ? league.inviteCode : null,
+      me: { player, isOwner, isAdmin, isMember },
+    };
+  },
+});
+
+/** Public-ish summary for the join screen. */
+export const byInvite = query({
+  args: { inviteCode: v.string() },
+  handler: async (ctx, { inviteCode }) => {
+    const league = await ctx.db
+      .query("leagues")
+      .withIndex("by_invite", (q) =>
+        q.eq("inviteCode", inviteCode.trim().toUpperCase()),
+      )
+      .first();
+    if (!league) return null;
+    const players = await ctx.db
+      .query("players")
+      .withIndex("by_league", (q) => q.eq("leagueId", league._id))
+      .collect();
+    return {
+      _id: league._id,
+      name: league.name,
+      tournament: league.tournament,
+      playerCount: players.length,
+    };
+  },
+});
+
+/** Create a new league (Supremacy). Seeds roster + this league's games. */
+export const create = mutation({
+  args: {
+    name: v.string(),
+    myName: v.string(),
+    players: v.array(v.string()),
+    stakes: v.optional(
+      v.array(v.object({ stage: stageValidator, amount: v.number() })),
+    ),
+  },
+  handler: async (ctx, { name, myName, players, stakes }) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Sign in first.");
+    const leagueName = name.trim() || "WC2026 Supremacy";
+    const owner = myName.trim();
+    if (!owner) throw new Error("Enter your name.");
+
+    const leagueId = await ctx.db.insert("leagues", {
+      name: leagueName,
+      tournament: "WC2026",
+      width: WIDTH,
+      stakes: stakes ?? STAGES.map((stage) => ({ stage, amount: STAKES[stage] })),
+      settlementBasis: SETTLEMENT_BASIS,
+      ownerUserId: userId,
+      inviteCode: makeInviteCode(),
+    });
+    await ctx.db.insert("memberships", { leagueId, userId });
+
+    const seen = new Set<string>();
+    const add = async (nm: string, claim: boolean) => {
+      const t = nm.trim();
+      if (!t || seen.has(t.toLowerCase())) return;
+      seen.add(t.toLowerCase());
+      await ctx.db.insert("players", {
+        leagueId,
+        name: t,
+        claimedByUserId: claim ? userId : undefined,
+        addedByUserId: userId,
+      });
+    };
+    await add(owner, true);
+    for (const p of players) await add(p, false);
+
+    // Seed this league's games from the earliest league (which holds fixtures).
+    const source = await ctx.db.query("leagues").order("asc").first();
+    if (source && source._id !== leagueId) {
+      await seedGamesFrom(ctx, leagueId, source._id);
+    }
+
+    await ctx.db.insert("auditLogs", {
+      leagueId,
+      actor: owner,
+      action: "league_created",
+      after: { name: leagueName },
+    });
+    const league = await ctx.db.get(leagueId);
+    return { leagueId, inviteCode: league!.inviteCode };
+  },
+});
+
+/** Join a league by invite code (does not auto-claim a seat). */
+export const join = mutation({
+  args: { inviteCode: v.string() },
+  handler: async (ctx, { inviteCode }) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Sign in first.");
+    const league = await ctx.db
+      .query("leagues")
+      .withIndex("by_invite", (q) =>
+        q.eq("inviteCode", inviteCode.trim().toUpperCase()),
+      )
+      .first();
+    if (!league) throw new Error("That invite code isn't valid.");
+    const existing = await ctx.db
+      .query("memberships")
+      .withIndex("by_league_user", (q) =>
+        q.eq("leagueId", league._id).eq("userId", userId),
+      )
+      .first();
+    if (!existing)
+      await ctx.db.insert("memberships", { leagueId: league._id, userId });
+    return { leagueId: league._id };
+  },
+});

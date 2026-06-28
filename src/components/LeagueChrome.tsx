@@ -1,17 +1,21 @@
 "use client";
 
 import { ReactNode } from "react";
+import Link from "next/link";
 import { useAuthActions } from "@convex-dev/auth/react";
-import { LogOut } from "lucide-react";
+import { ChevronLeft, LogOut } from "lucide-react";
 import { BottomTabBar } from "@/components/BottomTabBar";
-import { BrandMark } from "@/components/BrandMark";
 import { colorFor } from "@/config/constants";
 
-export function AppChrome({
+export function LeagueChrome({
+  leagueId,
+  leagueName,
   playerName,
   isAdmin,
   children,
 }: {
+  leagueId: string;
+  leagueName: string;
   playerName: string;
   isAdmin: boolean;
   children: ReactNode;
@@ -21,20 +25,19 @@ export function AppChrome({
   return (
     <>
       <div className="mx-auto flex min-h-dvh max-w-md flex-col">
-        <header className="glass sticky top-0 z-30 flex items-center justify-between border-b border-border px-4 py-3">
-          <div className="flex items-center gap-2.5">
-            <BrandMark />
-            <div className="leading-none">
-              <div className="text-[15px] font-semibold tracking-tight">
-                Supremacy
-              </div>
-              <div className="mt-1 flex items-center gap-1.5 text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
-                <span className="live-dot inline-block size-1.5 rounded-full bg-primary" />
-                WC2026 · Knockouts
-              </div>
-            </div>
+        <header className="glass sticky top-0 z-30 flex items-center justify-between border-b border-border px-3 py-3">
+          <div className="flex min-w-0 items-center gap-1">
+            <Link
+              href="/"
+              className="grid size-8 shrink-0 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              aria-label="All Supremacies"
+            >
+              <ChevronLeft className="size-5" />
+            </Link>
+            <span className="truncate text-base font-semibold tracking-tight">
+              {leagueName}
+            </span>
           </div>
-
           <div className="flex items-center gap-2">
             <span className="flex items-center gap-1.5 rounded-full bg-secondary px-2.5 py-1 text-xs font-medium">
               <span
@@ -44,7 +47,6 @@ export function AppChrome({
               {playerName}
             </span>
             <button
-              type="button"
               onClick={() => signOut()}
               aria-label="Sign out"
               className="grid size-8 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
@@ -56,7 +58,7 @@ export function AppChrome({
 
         <main className="flex-1 px-4 pb-28 pt-5">{children}</main>
       </div>
-      <BottomTabBar isAdmin={isAdmin} />
+      <BottomTabBar leagueId={leagueId} isAdmin={isAdmin} />
     </>
   );
 }

@@ -26,7 +26,13 @@ function toLocalInput(ms: number | null): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
-export function GameDetail({ gameId }: { gameId: string }) {
+export function GameDetail({
+  gameId,
+  leagueId,
+}: {
+  gameId: string;
+  leagueId: string;
+}) {
   const d = useQuery(api.games.detail, { gameId: gameId as Id<"games"> });
   const now = useNow();
 
@@ -34,7 +40,7 @@ export function GameDetail({ gameId }: { gameId: string }) {
   if (d === null) {
     return (
       <div className="space-y-4">
-        <BackLink />
+        <BackLink leagueId={leagueId} />
         <p className="text-sm text-muted-foreground">Game not found.</p>
       </div>
     );
@@ -45,7 +51,7 @@ export function GameDetail({ gameId }: { gameId: string }) {
 
   return (
     <div className="space-y-4">
-      <BackLink />
+      <BackLink leagueId={leagueId} />
 
       <div className="panel rounded-2xl p-5">
         <div className="flex items-center justify-between">
@@ -153,9 +159,12 @@ export function GameDetail({ gameId }: { gameId: string }) {
 
 /* ── shared bits ──────────────────────────────────────────────────────── */
 
-function BackLink() {
+function BackLink({ leagueId }: { leagueId: string }) {
   return (
-    <Link href="/games" className="inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground">
+    <Link
+      href={`/l/${leagueId}/games`}
+      className="inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
+    >
       <ArrowLeft className="size-4" /> Games
     </Link>
   );
@@ -477,7 +486,7 @@ function AdminGameControls({ detail: d }: { detail: Detail }) {
   const settleManual = useMutation(api.settlement.settleManual);
   const voidGame = useMutation(api.settlement.voidGame);
   const editFixture = useMutation(api.admin.editFixture);
-  const players = useQuery(api.players.list);
+  const players = useQuery(api.players.list, { leagueId: d.leagueId });
   const [err, setErr] = useState<string | null>(null);
   const [sh, setSh] = useState("");
   const [sa, setSa] = useState("");

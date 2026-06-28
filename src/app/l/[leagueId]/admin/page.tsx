@@ -1,14 +1,19 @@
 import { AdminOnly } from "@/components/AdminOnly";
+import { InvitePanel } from "@/components/admin/InvitePanel";
 import { FixturesAdminPanel } from "@/components/FixturesAdminPanel";
 import { MakerDrawPanel } from "@/components/admin/MakerDrawPanel";
 import { RosterAdminPanel } from "@/components/admin/RosterAdminPanel";
 import { StakesAdminPanel } from "@/components/admin/StakesAdminPanel";
 import { AuditLogPanel } from "@/components/admin/AuditLogPanel";
-import { DevSeedPanel } from "@/components/DevSeedPanel";
 
-export default function AdminPage() {
+export default async function Page({
+  params,
+}: {
+  params: Promise<{ leagueId: string }>;
+}) {
+  const { leagueId } = await params;
   return (
-    <AdminOnly>
+    <AdminOnly leagueId={leagueId}>
       <div className="space-y-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Admin</h1>
@@ -16,12 +21,12 @@ export default function AdminPage() {
             Settle / override / void live on each game&apos;s page.
           </p>
         </div>
-        <FixturesAdminPanel />
-        <MakerDrawPanel />
-        <RosterAdminPanel />
-        <StakesAdminPanel />
-        <AuditLogPanel />
-        {process.env.NODE_ENV !== "production" && <DevSeedPanel />}
+        <InvitePanel leagueId={leagueId} />
+        <FixturesAdminPanel leagueId={leagueId} />
+        <MakerDrawPanel leagueId={leagueId} />
+        <RosterAdminPanel leagueId={leagueId} />
+        <StakesAdminPanel leagueId={leagueId} />
+        <AuditLogPanel leagueId={leagueId} />
       </div>
     </AdminOnly>
   );

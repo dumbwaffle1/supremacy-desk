@@ -27,10 +27,11 @@ function shuffle<T>(arr: T[]): T[] {
 
 type Game = FunctionReturnType<typeof api.games.list>[number];
 
-export function MakerDrawPanel() {
-  const games = useQuery(api.games.list);
-  const standings = useQuery(api.standings.standings);
-  const players = useQuery(api.players.list);
+export function MakerDrawPanel({ leagueId }: { leagueId: string }) {
+  const lid = leagueId as Id<"leagues">;
+  const games = useQuery(api.games.list, { leagueId: lid });
+  const standings = useQuery(api.standings.standings, { leagueId: lid });
+  const players = useQuery(api.players.list, { leagueId: lid });
   const assignMakers = useMutation(api.admin.assignMakers);
 
   const [drawKey, setDrawKey] = useState<(typeof DRAWS)[number]["key"]>("R32");
@@ -85,7 +86,7 @@ export function MakerDrawPanel() {
     setBusy(true);
     setMsg(null);
     try {
-      const r = await assignMakers({ assignments });
+      const r = await assignMakers({ leagueId: lid, assignments });
       setMsg(`Locked ${r.count} maker assignment${r.count === 1 ? "" : "s"}.`);
     } finally {
       setBusy(false);

@@ -56,6 +56,14 @@ export default defineSchema({
     .index("by_invite", ["inviteCode"])
     .index("by_owner", ["ownerUserId"]),
 
+  // A user has joined a league (may or may not have claimed a seat yet).
+  memberships: defineTable({
+    leagueId: v.id("leagues"),
+    userId: v.id("users"),
+  })
+    .index("by_user", ["userId"])
+    .index("by_league_user", ["leagueId", "userId"]),
+
   // Open roster, scoped to a league.
   players: defineTable({
     leagueId: v.optional(v.id("leagues")),

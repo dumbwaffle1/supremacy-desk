@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { ArrowRight, Check, Lock } from "lucide-react";
 import { api } from "../../convex/_generated/api";
+import type { Id } from "../../convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
 import { colorFor, STAGE_LABEL, type Stage } from "@/config/constants";
 
@@ -18,15 +19,16 @@ function Dot({ name }: { name: string }) {
   );
 }
 
-export function Settle() {
-  const data = useQuery(api.ledger.ledger);
-  const me = useQuery(api.users.me);
+export function Settle({ leagueId }: { leagueId: string }) {
+  const lid = leagueId as Id<"leagues">;
+  const data = useQuery(api.ledger.ledger, { leagueId: lid });
+  const league = useQuery(api.leagues.get, { leagueId: lid });
   const recordPayment = useMutation(api.ledger.recordPayment);
   const clearPayment = useMutation(api.ledger.clearPayment);
   const finalSettle = useMutation(api.ledger.finalSettle);
   const [busy, setBusy] = useState(false);
 
-  const isAdmin = !!me?.isAdmin;
+  const isAdmin = !!league?.me.isAdmin;
 
   if (data === undefined) {
     return <div className="panel h-40 animate-pulse rounded-2xl" />;
@@ -117,8 +119,13 @@ export function Settle() {
                         <button
                           onClick={() =>
                             t.paid
-                              ? clearPayment({ from: t.from, to: t.to })
-                              : recordPayment({ from: t.from, to: t.to, amount: t.amount })
+                              ? clearPayment({ leagueId: lid, from: t.from, to: t.to })
+                              : recordPayment({
+                                  leagueId: lid,
+                                  from: t.from,
+                                  to: t.to,
+                                  amount: t.amount,
+                                })
                           }
                           className={`grid size-6 place-items-center rounded-full border transition-colors ${
                             t.paid
@@ -196,7 +203,7 @@ export function Settle() {
                 onClick={async () => {
                   setBusy(true);
                   try {
-                    await finalSettle({});
+                    await finalSettle({ leagueId: lid });
                   } finally {
                     setBusy(false);
                   }

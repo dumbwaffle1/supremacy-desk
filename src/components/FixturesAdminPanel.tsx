@@ -4,11 +4,12 @@ import { useState } from "react";
 import { useAction, useQuery } from "convex/react";
 import { RefreshCw } from "lucide-react";
 import { api } from "../../convex/_generated/api";
+import type { Id } from "../../convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
 import { STAGES, STAGE_LABEL, type Stage } from "@/config/constants";
 
-export function FixturesAdminPanel() {
-  const games = useQuery(api.games.list);
+export function FixturesAdminPanel({ leagueId }: { leagueId: string }) {
+  const games = useQuery(api.games.list, { leagueId: leagueId as Id<"leagues"> });
   const syncNow = useAction(api.fixtures.syncNow);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);

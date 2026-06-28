@@ -6,13 +6,15 @@ import { getStakes } from "./tournament";
 import { makerWindowOpen, takerWindowOpen } from "./lib/trading";
 import { ADMIN_EMAIL } from "../src/config/constants";
 
-/** All games with derived offer + stake, ordered by gameNo. Read by the UI —
- *  screen loads never hit the football API (everything is cached in Convex). */
+/** A league's games with derived offer + stake, ordered by gameNo. */
 export const list = query({
-  args: {},
-  handler: async (ctx) => {
-    const games = await ctx.db.query("games").collect();
-    const stakes = await getStakes(ctx);
+  args: { leagueId: v.id("leagues") },
+  handler: async (ctx, { leagueId }) => {
+    const games = await ctx.db
+      .query("games")
+      .withIndex("by_league", (q) => q.eq("leagueId", leagueId))
+      .collect();
+    const stakes = await getStakes(ctx, leagueId);
     return games
       .sort((a, b) => a.gameNo - b.gameNo)
       .map((g) => ({
@@ -41,42 +43,43 @@ export const list = query({
   },
 });
 
-/** One game with its book, window state, still-to-trade list, and the viewer's
- *  own role/position. Drives the Games detail screen (Prompt 6). */
+/** One game with book, window state, still-to-trade, and the viewer's role. */
 export const detail = query({
   args: { gameId: v.id("games") },
   handler: async (ctx, { gameId }) => {
     const game = await ctx.db.get(gameId);
-    if (!game) return null;
+    if (!game || !game.leagueId) return null;
+    const leagueId = game.leagueId;
 
     const now = Date.now();
     const offer = game.bid !== undefined ? offerFor(game.bid) : null;
-    const stake = (await getStakes(ctx))[game.stage];
+    const stake = (await getStakes(ctx, leagueId))[game.stage];
 
     const trades = await ctx.db
       .query("trades")
       .withIndex("by_game", (q) => q.eq("gameId", gameId))
       .collect();
-    const players = await ctx.db.query("players").collect();
+    const players = await ctx.db
+      .query("players")
+      .withIndex("by_league", (q) => q.eq("leagueId", leagueId))
+      .collect();
     const traded = new Set(trades.map((t) => t.player));
     const stillToTrade = players
       .filter((p) => p.name !== game.makerPlayer && !traded.has(p.name))
       .map((p) => p.name);
 
-    // Viewer
     const userId = await getAuthUserId(ctx);
     let mePlayer: string | null = null;
     let isAdmin = false;
     if (userId) {
       const user = await ctx.db.get(userId);
+      const league = await ctx.db.get(leagueId);
       isAdmin =
+        league?.ownerUserId === userId ||
         !!user?.isAdmin ||
         (user?.email ?? "").toLowerCase() === ADMIN_EMAIL.toLowerCase();
-      const p = await ctx.db
-        .query("players")
-        .withIndex("by_claimedBy", (q) => q.eq("claimedByUserId", userId))
-        .first();
-      mePlayer = p?.name ?? null;
+      mePlayer =
+        players.find((p) => p.claimedByUserId === userId)?.name ?? null;
     }
     const myTrade = mePlayer
       ? (trades.find((t) => t.player === mePlayer) ?? null)
@@ -84,6 +87,7 @@ export const detail = query({
 
     return {
       _id: game._id,
+      leagueId,
       gameNo: game.gameNo,
       stage: game.stage,
       round: game.round ?? null,
@@ -101,8 +105,6 @@ export const detail = query({
       offer,
       stake,
       defaultedMaker: game.defaultedMaker ?? false,
-      // Maker is counterparty to everyone: makerPnl = −sum(taker pnl). Only
-      // meaningful once settled (before that they haven't traded anything).
       makerPnl:
         game.status === "SETTLED" && game.makerPlayer
           ? round2(-trades.reduce((s, t) => s + (t.pnl ?? 0), 0))
@@ -113,6 +115,7 @@ export const detail = query({
       liveAway: game.liveAway ?? null,
       makerOpen: makerWindowOpen(now, game.koUtc),
       takerOpen: takerWindowOpen(now, game.koUtc),
+      hasTrades: trades.length > 0,
       book: trades.map((t) => ({
         player: t.player,
         side: t.side,
@@ -122,7 +125,6 @@ export const detail = query({
         pnl: t.pnl ?? null,
       })),
       stillToTrade,
-      hasTrades: trades.length > 0,
       me: {
         player: mePlayer,
         isAdmin,

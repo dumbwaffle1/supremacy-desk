@@ -14,15 +14,6 @@ import type { Stage } from "../src/config/constants";
 const API_BASE = "https://api.football-data.org/v4";
 const COMPETITION = "WC"; // FIFA World Cup
 
-const STAGE_ORDER: Record<Stage, number> = {
-  R32: 0,
-  R16: 1,
-  QF: 2,
-  SF: 3,
-  "3PO": 4,
-  F: 5,
-};
-
 /** Map football-data.org `stage` enum to our stage; null = group stage / skip. */
 export function fdStageToStage(stage: string): Stage | null {
   const s = (stage ?? "").toUpperCase();
@@ -84,42 +75,22 @@ const fixtureValidator = v.object({
 });
 
 /**
- * Idempotent upsert. Matches existing games by fixtureId; otherwise adopts a
- * seeded placeholder (same gameNo, has a maker, no fixtureId yet) so maker
- * assignments + any bids/trades survive; otherwise inserts. Never wipes
- * makerPlayer/bid, never downgrades a SETTLED/VOID game.
+ * Update every league's games for each fixture (matched by fixtureId): teams,
+ * kick-off, round, status. League games are created at league-creation, so this
+ * never inserts. Never downgrades a SETTLED/VOID game.
  */
 export const upsertFromApi = internalMutation({
   args: { fixtures: v.array(fixtureValidator) },
   handler: async (ctx, { fixtures }) => {
-    const sorted = [...fixtures].sort(
-      (a, b) =>
-        STAGE_ORDER[a.stage] - STAGE_ORDER[b.stage] ||
-        (a.koUtc ?? Infinity) - (b.koUtc ?? Infinity) ||
-        a.fixtureId - b.fixtureId,
-    );
-
-    const existing = await ctx.db.query("games").collect();
-    const byFixture = new Map(
-      existing
-        .filter((g) => g.fixtureId !== undefined)
-        .map((g) => [g.fixtureId as number, g]),
-    );
-    const placeholders = existing.filter((g) => g.fixtureId === undefined);
-
-    let created = 0;
     let updated = 0;
-    let adopted = 0;
-
-    for (let i = 0; i < sorted.length; i++) {
-      const f = sorted[i];
-      const gameNo = i + 1;
+    for (const f of fixtures) {
+      const games = await ctx.db
+        .query("games")
+        .withIndex("by_fixtureId", (q) => q.eq("fixtureId", f.fixtureId))
+        .collect();
       const status = mapStatus(f.statusShort);
-
-      const ex = byFixture.get(f.fixtureId);
-      if (ex) {
+      for (const g of games) {
         const base = {
-          gameNo,
           stage: f.stage,
           round: f.round,
           home: f.home,
@@ -127,50 +98,13 @@ export const upsertFromApi = internalMutation({
           koUtc: f.koUtc,
         };
         await ctx.db.patch(
-          ex._id,
-          ex.status === "SETTLED" || ex.status === "VOID"
-            ? base
-            : { ...base, status },
+          g._id,
+          g.status === "SETTLED" || g.status === "VOID" ? base : { ...base, status },
         );
         updated++;
-        continue;
       }
-
-      const ph = placeholders.find(
-        (g) =>
-          g.gameNo === gameNo &&
-          g.makerPlayer !== undefined &&
-          g.fixtureId === undefined,
-      );
-      if (ph) {
-        await ctx.db.patch(ph._id, {
-          fixtureId: f.fixtureId,
-          stage: f.stage,
-          round: f.round,
-          home: f.home,
-          away: f.away,
-          koUtc: f.koUtc,
-          status,
-        });
-        ph.fixtureId = f.fixtureId;
-        adopted++;
-        continue;
-      }
-
-      await ctx.db.insert("games", {
-        fixtureId: f.fixtureId,
-        gameNo,
-        stage: f.stage,
-        round: f.round,
-        home: f.home,
-        away: f.away,
-        koUtc: f.koUtc,
-        status,
-      });
-      created++;
     }
-
-    return { created, updated, adopted, total: sorted.length };
+    return { updated, fixtures: fixtures.length };
   },
 });
 
@@ -236,8 +170,7 @@ export const sync = internalAction({
       fixtures,
     });
     console.log(
-      `[fixtures] synced ${fixtures.length} knockout fixtures of ${matches.length} returned ` +
-        `(created ${result.created}, updated ${result.updated}, adopted ${result.adopted}). ` +
+      `[fixtures] ${fixtures.length} knockout fixtures · updated ${result.updated} league games. ` +
         `Skipped stages: ${[...skippedStages].join(", ") || "none"}`,
     );
     return { ok: true, ...result };

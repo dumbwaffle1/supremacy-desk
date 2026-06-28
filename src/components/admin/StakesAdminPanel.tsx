@@ -3,21 +3,23 @@
 import { useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "../../../convex/_generated/api";
+import type { Id } from "../../../convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { STAGES, STAGE_LABEL, type Stage } from "@/config/constants";
 
-export function StakesAdminPanel() {
-  const tour = useQuery(api.tournament.get);
+export function StakesAdminPanel({ leagueId }: { leagueId: string }) {
+  const lid = leagueId as Id<"leagues">;
+  const league = useQuery(api.leagues.get, { leagueId: lid });
   const setStake = useMutation(api.admin.setStake);
   const [edits, setEdits] = useState<Record<string, string>>({});
   const [savedStage, setSavedStage] = useState<string | null>(null);
 
-  if (tour === undefined) {
+  if (league === undefined) {
     return <div className="panel h-32 animate-pulse rounded-2xl" />;
   }
 
-  const stakes = tour?.stakes;
+  const stakes = league?.stakes;
 
   return (
     <div className="panel rounded-2xl p-5">
@@ -47,7 +49,7 @@ export function StakesAdminPanel() {
                 className="h-8 border-border px-2 text-xs"
                 disabled={!dirty || value === ""}
                 onClick={async () => {
-                  await setStake({ stage: s, amount: Number(value) });
+                  await setStake({ leagueId: lid, stage: s, amount: Number(value) });
                   setSavedStage(s);
                   setEdits((x) => {
                     const n = { ...x };

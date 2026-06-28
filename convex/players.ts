@@ -1,10 +1,14 @@
+import { v } from "convex/values";
 import { query } from "./_generated/server";
 
-/** All roster players, with claim status. Used by the roster/claim UI. */
+/** Roster for a league, with claim status. */
 export const list = query({
-  args: {},
-  handler: async (ctx) => {
-    const players = await ctx.db.query("players").collect();
+  args: { leagueId: v.id("leagues") },
+  handler: async (ctx, { leagueId }) => {
+    const players = await ctx.db
+      .query("players")
+      .withIndex("by_league", (q) => q.eq("leagueId", leagueId))
+      .collect();
     return players
       .map((p) => ({
         _id: p._id,

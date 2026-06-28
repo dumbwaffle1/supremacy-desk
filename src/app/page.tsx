@@ -1,5 +1,5 @@
-import { Desk } from "@/components/Desk";
+import { Home } from "@/components/Home";
 
-export default function DeskPage() {
-  return <Desk />;
+export default function Page() {
+  return <Home />;
 }
