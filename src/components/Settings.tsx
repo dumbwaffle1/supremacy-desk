@@ -178,13 +178,15 @@ export function Settings({ leagueId }: { leagueId: string }) {
         )}
       </div>
 
+      {/* Invite — visible to every member */}
+      <InvitePanel leagueId={leagueId} />
+
       {/* Admin */}
       {isAdmin && (
         <div className="space-y-4">
           <h2 className="flex items-center gap-1.5 pt-1 text-sm font-semibold uppercase tracking-wider text-primary">
             <ShieldCheck className="size-4" /> Admin
           </h2>
-          <InvitePanel leagueId={leagueId} />
           <FixturesAdminPanel leagueId={leagueId} />
           <MakerDrawPanel leagueId={leagueId} />
           <RosterAdminPanel leagueId={leagueId} />
