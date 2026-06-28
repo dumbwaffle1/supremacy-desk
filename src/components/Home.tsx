@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
 import { useAuthActions } from "@convex-dev/auth/react";
-import { ArrowRight, LogOut, Plus, Trophy, Users, X } from "lucide-react";
+import { ArrowRight, Check, Copy, LogOut, Plus, Share2, Trophy, Users, X } from "lucide-react";
 import { api } from "../../convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,8 +16,14 @@ export function Home() {
   const me = useQuery(api.users.me);
   const others = useQuery(api.leagues.others);
   const { signOut } = useAuthActions();
+  const router = useRouter();
   const [mode, setMode] = useState<"list" | "create" | "join">("list");
   const [tab, setTab] = useState<"mine" | "others">("mine");
+  const [created, setCreated] = useState<{
+    leagueId: string;
+    inviteCode: string;
+    name: string;
+  } | null>(null);
   const isSuper = !!me?.isAdmin;
 
   return (
@@ -37,7 +43,7 @@ export function Home() {
       </header>
 
       {mode === "create" ? (
-        <CreateLeague onDone={() => setMode("list")} />
+        <CreateLeague onDone={() => setMode("list")} onCreated={setCreated} />
       ) : mode === "join" ? (
         <JoinLeague onDone={() => setMode("list")} />
       ) : (
@@ -159,13 +165,105 @@ export function Home() {
           </div>
         </>
       )}
+
+      {created && (
+        <InviteCreatedModal
+          name={created.name}
+          inviteCode={created.inviteCode}
+          onEnter={() => router.push(`/l/${created.leagueId}`)}
+        />
+      )}
     </div>
   );
 }
 
-function CreateLeague({ onDone }: { onDone: () => void }) {
+function InviteCreatedModal({
+  name,
+  inviteCode,
+  onEnter,
+}: {
+  name: string;
+  inviteCode: string;
+  onEnter: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+  const link =
+    typeof window !== "undefined"
+      ? `${window.location.origin}/join/${inviteCode}`
+      : `/join/${inviteCode}`;
+  const canShare = typeof navigator !== "undefined" && !!navigator.share;
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(link);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* blocked */
+    }
+  };
+  const share = async () => {
+    try {
+      await navigator.share({
+        title: `Join ${name} on Supremacy`,
+        text: `Join my Supremacy "${name}" — World Cup goal-supremacy trading.`,
+        url: link,
+      });
+    } catch {
+      /* cancelled */
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-4 backdrop-blur-sm sm:items-center">
+      <div className="panel w-full max-w-sm rounded-2xl p-6">
+        <div className="text-center">
+          <div className="mx-auto grid size-12 place-items-center rounded-xl bg-primary/15">
+            <Trophy className="size-6 text-primary" />
+          </div>
+          <h2 className="mt-3 text-lg font-semibold">{name} is live</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Invite your players — they tap the link, pick a name, and they&apos;re in.
+          </p>
+        </div>
+
+        <div className="tnum mt-4 truncate rounded-lg bg-secondary px-3 py-2 text-center text-sm tracking-widest">
+          {inviteCode}
+        </div>
+        <div className="mt-2 flex gap-2">
+          {canShare && (
+            <Button className="h-11 flex-1 font-semibold" onClick={share}>
+              <Share2 className="size-4" /> Share
+            </Button>
+          )}
+          <Button
+            variant={canShare ? "outline" : "default"}
+            className={canShare ? "h-11 flex-1 border-border" : "h-11 flex-1 font-semibold"}
+            onClick={copy}
+          >
+            {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
+            {copied ? "Copied" : "Copy link"}
+          </Button>
+        </div>
+        <button
+          onClick={onEnter}
+          className="mt-3 flex w-full items-center justify-center gap-1 py-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
+        >
+          Enter league <ArrowRight className="size-4" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function CreateLeague({
+  onDone,
+  onCreated,
+}: {
+  onDone: () => void;
+  onCreated: (c: { leagueId: string; inviteCode: string; name: string }) => void;
+}) {
   const create = useMutation(api.leagues.create);
-  const router = useRouter();
   const [name, setName] = useState("");
   const [myName, setMyName] = useState("");
   const [players, setPlayers] = useState<string[]>([]);
@@ -189,8 +287,12 @@ function CreateLeague({ onDone }: { onDone: () => void }) {
     setBusy(true);
     setErr(null);
     try {
-      const { leagueId } = await create({ name, myName, players });
-      router.push(`/l/${leagueId}`);
+      const res = await create({ name, myName, players });
+      onCreated({
+        leagueId: res.leagueId,
+        inviteCode: res.inviteCode,
+        name: name.trim() || "Supremacy",
+      });
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Failed.");
       setBusy(false);
