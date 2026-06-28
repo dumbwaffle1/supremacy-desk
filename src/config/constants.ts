@@ -50,7 +50,7 @@ export const STAGE_LABEL: Record<Stage, string> = {
  * is flagged User.isAdmin. Override per-environment with NEXT_PUBLIC_ADMIN_EMAIL.
  */
 export const ADMIN_EMAIL =
-  process.env.NEXT_PUBLIC_ADMIN_EMAIL ?? "never.trust.the.nihiliste@gmail.com";
+  process.env.NEXT_PUBLIC_ADMIN_EMAIL ?? "yassine.el.majdoubi@hotmail.com";
 
 /**
  * Settlement basis: supremacy settles on the score AFTER EXTRA TIME (120'),
