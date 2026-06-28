@@ -31,17 +31,24 @@ export async function requireLeagueAdmin(
   return { actor: user?.email ?? "owner", userId };
 }
 
-/** Copy the fixture games (no maker/bid/trades) from a source league. */
+/** Copy the fixture games (no maker/bid/trades) from a source league. If
+ *  voidPlayed, games that have already kicked off are VOID (a late-joining
+ *  league can't play matches that are over). */
 async function seedGamesFrom(
   ctx: MutationCtx,
   leagueId: Id<"leagues">,
   sourceLeagueId: Id<"leagues">,
+  voidPlayed: boolean,
 ) {
+  const now = Date.now();
   const src = await ctx.db
     .query("games")
     .withIndex("by_league", (q) => q.eq("leagueId", sourceLeagueId))
     .collect();
   for (const g of src) {
+    const played = g.koUtc !== undefined && g.koUtc <= now;
+    const status =
+      voidPlayed && played ? "VOID" : g.status === "SETTLED" ? "FT" : g.status;
     await ctx.db.insert("games", {
       leagueId,
       fixtureId: g.fixtureId,
@@ -51,7 +58,7 @@ async function seedGamesFrom(
       home: g.home,
       away: g.away,
       koUtc: g.koUtc,
-      status: g.status === "SETTLED" ? "FT" : g.status,
+      status,
     });
   }
 }
@@ -233,11 +240,12 @@ export const create = mutation({
     name: v.string(),
     myName: v.string(),
     players: v.array(v.string()),
+    voidPlayed: v.optional(v.boolean()),
     stakes: v.optional(
       v.array(v.object({ stage: stageValidator, amount: v.number() })),
     ),
   },
-  handler: async (ctx, { name, myName, players, stakes }) => {
+  handler: async (ctx, { name, myName, players, voidPlayed, stakes }) => {
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("Sign in first.");
     const leagueName = name.trim() || "WC2026 Supremacy";
@@ -273,7 +281,7 @@ export const create = mutation({
     // Seed this league's games from the earliest league (which holds fixtures).
     const source = await ctx.db.query("leagues").order("asc").first();
     if (source && source._id !== leagueId) {
-      await seedGamesFrom(ctx, leagueId, source._id);
+      await seedGamesFrom(ctx, leagueId, source._id, voidPlayed ?? false);
     }
 
     await ctx.db.insert("auditLogs", {

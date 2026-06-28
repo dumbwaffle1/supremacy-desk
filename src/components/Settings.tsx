@@ -2,10 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
-import { Bell, BellOff, ShieldCheck } from "lucide-react";
+import { ShieldCheck } from "lucide-react";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
-import { Button } from "@/components/ui/button";
 import {
   currentEndpoint,
   isPushSupported,
@@ -31,15 +30,17 @@ function Switch({
   return (
     <button
       type="button"
+      role="switch"
+      aria-checked={checked}
       disabled={disabled}
       onClick={() => onChange(!checked)}
-      className={`relative h-6 w-10 shrink-0 rounded-full transition-colors disabled:opacity-40 ${
+      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full px-0.5 transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
         checked ? "bg-primary" : "bg-secondary"
       }`}
     >
       <span
-        className={`absolute top-0.5 size-5 rounded-full bg-white transition-transform ${
-          checked ? "translate-x-[18px]" : "translate-x-0.5"
+        className={`size-5 rounded-full bg-white shadow-sm transition-transform ${
+          checked ? "translate-x-5" : "translate-x-0"
         }`}
       />
     </button>
@@ -125,26 +126,24 @@ export function Settings({ leagueId }: { leagueId: string }) {
 
       {/* Notifications */}
       <div className="panel rounded-2xl p-5">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-3">
           <div>
             <h2 className="text-sm font-semibold">Notifications</h2>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              {enabled
-                ? "On for this device."
-                : "Get reminders + results on this device."}
+              {!supported
+                ? "Not supported on this device."
+                : enabled
+                  ? "On for this device."
+                  : busy
+                    ? "Setting up…"
+                    : "Turn on to get reminders + results here."}
             </p>
           </div>
-          {!supported ? (
-            <span className="text-xs text-muted-foreground">Unsupported</span>
-          ) : enabled ? (
-            <Button size="sm" variant="outline" className="border-border" disabled={busy} onClick={disable}>
-              <BellOff className="size-4" /> Off
-            </Button>
-          ) : (
-            <Button size="sm" disabled={busy} onClick={enable}>
-              <Bell className="size-4" /> {busy ? "…" : "Enable"}
-            </Button>
-          )}
+          <Switch
+            checked={!!enabled}
+            disabled={!supported || busy || enabled === null}
+            onChange={(v) => (v ? enable() : disable())}
+          />
         </div>
         {err && <p className="mt-2 text-xs text-destructive">{err}</p>}
 
@@ -154,28 +153,23 @@ export function Settings({ leagueId }: { leagueId: string }) {
             desc="When you're the maker, before your rate is due."
             checked={prefs?.maker ?? true}
             onChange={(v) => update({ maker: v })}
-            disabled={!prefs}
+            disabled={!enabled || !prefs}
           />
           <PrefRow
             title="Trade reminders"
             desc="When a game is about to kick off and you haven't traded."
             checked={prefs?.taker ?? true}
             onChange={(v) => update({ taker: v })}
-            disabled={!prefs}
+            disabled={!enabled || !prefs}
           />
           <PrefRow
             title="Result summaries"
             desc="Your outcome when a game settles."
             checked={prefs?.settlement ?? true}
             onChange={(v) => update({ settlement: v })}
-            disabled={!prefs}
+            disabled={!enabled || !prefs}
           />
         </div>
-        {supported && !enabled && (
-          <p className="mt-2 text-[11px] text-muted-foreground">
-            Enable notifications above to actually receive these.
-          </p>
-        )}
       </div>
 
       {/* Invite — visible to every member */}

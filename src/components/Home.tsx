@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
 import { useAuthActions } from "@convex-dev/auth/react";
-import { ArrowRight, LogOut, Plus, Trophy, Users } from "lucide-react";
+import { ArrowRight, Check, LogOut, Plus, Trophy, Users, X } from "lucide-react";
 import { api } from "../../convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -168,20 +168,29 @@ function CreateLeague({ onDone }: { onDone: () => void }) {
   const router = useRouter();
   const [name, setName] = useState("");
   const [myName, setMyName] = useState("");
-  const [others, setOthers] = useState("");
+  const [players, setPlayers] = useState<string[]>([]);
+  const [playerInput, setPlayerInput] = useState("");
+  const [voidPlayed, setVoidPlayed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const addPlayer = () => {
+    const t = playerInput.trim();
+    setPlayerInput("");
+    if (!t) return;
+    if (
+      t.toLowerCase() === myName.trim().toLowerCase() ||
+      players.some((p) => p.toLowerCase() === t.toLowerCase())
+    )
+      return;
+    setPlayers((p) => [...p, t]);
+  };
+
+  const submit = async () => {
     setBusy(true);
     setErr(null);
     try {
-      const players = others
-        .split(/[\n,]/)
-        .map((s) => s.trim())
-        .filter(Boolean);
-      const { leagueId } = await create({ name, myName, players });
+      const { leagueId } = await create({ name, myName, players, voidPlayed });
       router.push(`/l/${leagueId}`);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Failed.");
@@ -190,38 +199,103 @@ function CreateLeague({ onDone }: { onDone: () => void }) {
   };
 
   return (
-    <form onSubmit={submit} className="mt-6 space-y-4">
+    <div className="mt-6 space-y-4">
       <button type="button" onClick={onDone} className="text-sm text-muted-foreground">
         ← Back
       </button>
       <h1 className="text-2xl font-semibold tracking-tight">New Supremacy</h1>
-      <div className="panel space-y-3 rounded-2xl p-5">
+      <div className="panel space-y-4 rounded-2xl p-5">
         <div>
           <label className="text-[11px] uppercase tracking-wide text-muted-foreground">
             Tournament
           </label>
-          <div className="mt-1 rounded-lg bg-secondary px-3 py-2 text-sm">
-            World Cup 2026 · Knockouts
-          </div>
+          <select
+            className="mt-1 h-11 w-full rounded-lg border border-input bg-secondary px-3 text-sm"
+            value="WC2026"
+            onChange={() => {}}
+          >
+            <option value="WC2026">World Cup 2026 · Knockouts</option>
+          </select>
         </div>
-        <Input placeholder="Name (e.g. The Lads)" className="h-11" value={name} onChange={(e) => setName(e.target.value)} />
+
+        <Input placeholder="League name (e.g. The Lads)" className="h-11" value={name} onChange={(e) => setName(e.target.value)} />
         <Input placeholder="Your name" className="h-11" value={myName} onChange={(e) => setMyName(e.target.value)} required />
-        <textarea
-          placeholder="Other players, one per line (optional)"
-          rows={4}
-          value={others}
-          onChange={(e) => setOthers(e.target.value)}
-          className="w-full rounded-lg border border-input bg-transparent px-3 py-2 text-sm"
-        />
+
+        <div>
+          <label className="text-[11px] uppercase tracking-wide text-muted-foreground">
+            Other players
+          </label>
+          <div className="mt-1 flex gap-2">
+            <Input
+              placeholder="Add a name"
+              className="h-10"
+              value={playerInput}
+              maxLength={24}
+              onChange={(e) => setPlayerInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  addPlayer();
+                }
+              }}
+            />
+            <Button type="button" size="sm" className="h-10" onClick={addPlayer}>
+              <Plus className="size-4" />
+            </Button>
+          </div>
+          {players.length > 0 && (
+            <ul className="mt-2 flex flex-wrap gap-1.5">
+              {players.map((p) => (
+                <li
+                  key={p}
+                  className="flex items-center gap-1 rounded-full bg-secondary px-2.5 py-1 text-xs"
+                >
+                  {p}
+                  <button
+                    type="button"
+                    onClick={() => setPlayers((x) => x.filter((n) => n !== p))}
+                    className="text-muted-foreground hover:text-foreground"
+                  >
+                    <X className="size-3" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            Friends can also join later with the invite link.
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => setVoidPlayed((v) => !v)}
+          className="flex w-full items-center justify-between gap-3 rounded-lg bg-secondary/40 px-3 py-2.5 text-left"
+        >
+          <span className="text-sm">
+            Void games already kicked off
+            <span className="mt-0.5 block text-[11px] text-muted-foreground">
+              Starting mid-tournament? Skip matches that are already underway.
+            </span>
+          </span>
+          <span
+            className={`grid size-5 shrink-0 place-items-center rounded border ${
+              voidPlayed ? "border-primary bg-primary text-primary-foreground" : "border-border"
+            }`}
+          >
+            {voidPlayed && <Check className="size-3.5" />}
+          </span>
+        </button>
+
         <p className="text-[11px] text-muted-foreground">
-          Stakes default to £10/20/30/50/50/100 per stage — editable in Admin later.
+          Stakes default to £10/20/30/50/50/100 per stage — editable in Settings → Admin.
         </p>
-        <Button type="submit" className="h-11 w-full font-semibold" disabled={busy || !myName.trim()}>
+        <Button className="h-11 w-full font-semibold" disabled={busy || !myName.trim()} onClick={submit}>
           {busy ? "Creating…" : "Create Supremacy"}
         </Button>
         {err && <p className="text-sm text-destructive">{err}</p>}
       </div>
-    </form>
+    </div>
   );
 }
 
