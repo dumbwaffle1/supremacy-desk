@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { WIDTH, STAGE_LABEL, colorFor, type Stage } from "@/config/constants";
 import { useNow } from "@/lib/useNow";
 import { displayStatus, STATUS_STYLE, supremacy, koLabel } from "@/lib/gameDisplay";
+import { Flag } from "@/lib/flags";
 
 type Detail = NonNullable<FunctionReturnType<typeof api.games.detail>>;
 type QuoteTeam = "HOME" | "AWAY";
@@ -139,7 +140,12 @@ function BackLink() {
 
 function Team({ name, align }: { name: string; align?: "right" }) {
   return (
-    <div className={`min-w-0 flex-1 ${align === "right" ? "text-right" : ""}`}>
+    <div
+      className={`flex min-w-0 flex-1 items-center gap-2 ${
+        align === "right" ? "flex-row-reverse" : ""
+      }`}
+    >
+      <Flag name={name} className="h-4 w-6" />
       <div className="truncate text-base font-semibold">{name}</div>
     </div>
   );

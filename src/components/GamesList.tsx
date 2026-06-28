@@ -7,6 +7,7 @@ import { api } from "../../convex/_generated/api";
 import { STAGES, STAGE_LABEL, STAKES, type Stage } from "@/config/constants";
 import { useNow } from "@/lib/useNow";
 import { displayStatus, STATUS_STYLE } from "@/lib/gameDisplay";
+import { Flag } from "@/lib/flags";
 
 export function GamesList() {
   const games = useQuery(api.games.list);
@@ -65,9 +66,11 @@ export function GamesList() {
                         >
                           {ds}
                         </span>
-                        <span className="truncate text-sm font-medium">
-                          {g.home ?? "TBD"}{" "}
-                          <span className="text-muted-foreground">v</span>{" "}
+                        <span className="flex items-center gap-1.5 truncate text-sm font-medium">
+                          <Flag name={g.home} />
+                          {g.home ?? "TBD"}
+                          <span className="text-muted-foreground">v</span>
+                          <Flag name={g.away} />
                           {g.away ?? "TBD"}
                         </span>
                       </div>

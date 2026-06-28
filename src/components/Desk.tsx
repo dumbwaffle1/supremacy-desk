@@ -14,6 +14,7 @@ import {
 import { Crown } from "lucide-react";
 import { api } from "../../convex/_generated/api";
 import { colorFor, STAGE_LABEL, type Stage } from "@/config/constants";
+import { Flag } from "@/lib/flags";
 
 /* ── helpers ──────────────────────────────────────────────────────────── */
 
@@ -210,9 +211,11 @@ function UpNext() {
                     <span className="rounded bg-secondary px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                       {STAGE_LABEL[g.stage as Stage]}
                     </span>
-                    <span className="text-sm font-medium">
-                      {g.home ?? "TBD"}{" "}
-                      <span className="text-muted-foreground">v</span>{" "}
+                    <span className="flex items-center gap-1.5 text-sm font-medium">
+                      <Flag name={g.home} />
+                      {g.home ?? "TBD"}
+                      <span className="text-muted-foreground">v</span>
+                      <Flag name={g.away} />
                       {g.away ?? "TBD"}
                     </span>
                   </div>
