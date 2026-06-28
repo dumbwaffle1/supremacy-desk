@@ -9,6 +9,9 @@
  */
 
 import type * as auth from "../auth.js";
+import type * as crons from "../crons.js";
+import type * as fixtures from "../fixtures.js";
+import type * as games from "../games.js";
 import type * as http from "../http.js";
 import type * as lib_game from "../lib/game.js";
 import type * as players from "../players.js";
@@ -24,6 +27,9 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   auth: typeof auth;
+  crons: typeof crons;
+  fixtures: typeof fixtures;
+  games: typeof games;
   http: typeof http;
   "lib/game": typeof lib_game;
   players: typeof players;
