@@ -22,4 +22,7 @@ crons.interval("poll scores", { minutes: 10 }, internal.settlement.pollScores, {
 // Reminder pushes: maker "rate due" + taker "trade closes" near kick-offs.
 crons.interval("reminders", { minutes: 5 }, internal.reminders.tick, {});
 
+// Keep QF/SF/3PO/F makers in sync with standings (bottom 4 / top 4).
+crons.interval("auto makers", { minutes: 15 }, internal.leagues.autoMakers, {});
+
 export default crons;

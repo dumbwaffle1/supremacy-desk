@@ -122,6 +122,8 @@ export default defineSchema({
     status: gameStatusValidator,
 
     makerPlayer: v.optional(v.string()),
+    // Admin set this maker by hand → don't let the standings auto-assigner change it.
+    makerManual: v.optional(v.boolean()),
     quoteTeam: v.optional(v.union(v.literal("HOME"), v.literal("AWAY"))),
     bid: v.optional(v.number()),
     makerSubmittedAt: v.optional(v.number()),

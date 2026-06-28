@@ -10,7 +10,7 @@ import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { settlementScore, mapStatus } from "./fixtures";
 import { round2, teamSupremacy, tradePnl } from "./lib/game";
-import { requireLeagueAdmin } from "./leagues";
+import { assignStandingsMakers, requireLeagueAdmin } from "./leagues";
 import type { Id } from "./_generated/dataModel";
 
 const API_MATCHES = "https://api.football-data.org/v4/competitions/WC/matches";
@@ -81,6 +81,8 @@ async function applySettlement(
         await notifySettle(ctx, uid, game, matchup, makerPnl);
       }
     }
+    // Standings changed → refresh QF/SF/3PO/F makers.
+    await assignStandingsMakers(ctx, game.leagueId);
   }
 }
 
@@ -320,6 +322,7 @@ export const voidGame = mutation({
       before: { status: game.status },
       after: { reason: reason ?? null },
     });
+    await assignStandingsMakers(ctx, game.leagueId);
     return { ok: true as const };
   },
 });

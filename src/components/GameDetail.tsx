@@ -482,6 +482,7 @@ function AdminGameControls({ detail: d }: { detail: Detail }) {
   const overrideBid = useMutation(api.admin.overrideMakerBid);
   const overrideTrade = useMutation(api.admin.overrideTrade);
   const removeTrade = useMutation(api.admin.removeTrade);
+  const setMaker = useMutation(api.admin.setMaker);
   const clearBid = useMutation(api.trades.clearBid);
   const settleManual = useMutation(api.settlement.settleManual);
   const voidGame = useMutation(api.settlement.voidGame);
@@ -514,6 +515,24 @@ function AdminGameControls({ detail: d }: { detail: Detail }) {
       <p className="mt-0.5 text-xs text-muted-foreground">
         Set anyone&apos;s rate or trade — bypasses deadlines &amp; locks. Audited.
       </p>
+
+      <div className="mt-3 flex items-center justify-between gap-2">
+        <span className="text-xs text-muted-foreground">Maker</span>
+        <select
+          value={d.makerPlayer ?? ""}
+          onChange={(e) =>
+            wrap(() => setMaker({ gameId: d._id, player: e.target.value }))
+          }
+          className="h-8 w-36 rounded-md border border-input bg-secondary px-2 text-xs"
+        >
+          <option value="">— (auto / none)</option>
+          {(players ?? []).map((p) => (
+            <option key={p._id} value={p.name}>
+              {p.name}
+            </option>
+          ))}
+        </select>
+      </div>
 
       <div className="mt-3">
         <RateInput

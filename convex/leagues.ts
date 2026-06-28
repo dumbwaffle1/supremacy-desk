@@ -4,6 +4,7 @@ import type { Id } from "./_generated/dataModel";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { makeInviteCode } from "./lib/invite";
 import { getStakes } from "./tournament";
+import { pnlMap } from "./standings";
 import { stageValidator } from "./schema";
 import {
   ADMIN_EMAIL,
@@ -100,7 +101,8 @@ export async function rebalanceMakers(ctx: MutationCtx, leagueId: Id<"leagues">)
 
   let i = 0;
   for (const g of games) {
-    if (g.stage !== "R32" && g.stage !== "R16") continue; // QF+ = standings draw
+    if (g.stage !== "R32" && g.stage !== "R16") continue; // QF+ = standings auto
+    if (g.makerManual) continue; // admin set this by hand
     const open =
       g.status === "SCHEDULED" &&
       g.bid === undefined &&
@@ -111,6 +113,63 @@ export async function rebalanceMakers(ctx: MutationCtx, leagueId: Id<"leagues">)
     i++;
   }
 }
+
+/**
+ * Auto-assign QF/SF/3PO/F makers from current standings: the bottom 4 by P&L
+ * make the QFs; the top 4 make the Final (1st), 3rd-place (2nd) and the two
+ * semis (3rd, 4th). Only touches OPEN games that aren't admin-overridden, so it
+ * keeps updating as standings move. Spec §6.
+ */
+export async function assignStandingsMakers(
+  ctx: MutationCtx,
+  leagueId: Id<"leagues">,
+) {
+  const { cum } = await pnlMap(ctx, leagueId);
+  const ranked = [...cum.entries()]
+    .map(([player, pnl]) => ({ player, pnl }))
+    .sort((a, b) => b.pnl - a.pnl || a.player.localeCompare(b.player))
+    .map((r) => r.player);
+  if (ranked.length < 8) return; // needs a full field to split top/bottom 4
+
+  const bottom4 = ranked.slice(-4);
+  const top4 = ranked.slice(0, 4);
+  const now = Date.now();
+  const games = await ctx.db
+    .query("games")
+    .withIndex("by_league", (q) => q.eq("leagueId", leagueId))
+    .collect();
+
+  const set = async (g: (typeof games)[number], player: string | undefined) => {
+    const open =
+      g.status === "SCHEDULED" &&
+      g.bid === undefined &&
+      (g.koUtc === undefined || g.koUtc > now) &&
+      !g.makerManual;
+    if (open && player && g.makerPlayer !== player)
+      await ctx.db.patch(g._id, { makerPlayer: player });
+  };
+
+  const ofStage = (s: Stage) =>
+    games.filter((g) => g.stage === s).sort((a, b) => a.gameNo - b.gameNo);
+
+  const qf = ofStage("QF");
+  for (let i = 0; i < qf.length; i++) await set(qf[i], bottom4[i]);
+  const sf = ofStage("SF");
+  if (sf[0]) await set(sf[0], top4[2]);
+  if (sf[1]) await set(sf[1], top4[3]);
+  if (ofStage("3PO")[0]) await set(ofStage("3PO")[0], top4[1]);
+  if (ofStage("F")[0]) await set(ofStage("F")[0], top4[0]);
+}
+
+/** One-off + cron: refresh standings-based makers across all leagues. */
+export const autoMakers = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const leagues = await ctx.db.query("leagues").collect();
+    for (const l of leagues) await assignStandingsMakers(ctx, l._id);
+    return { leagues: leagues.length };
+  },
+});
 
 /** One-off: ensure every league's open games have a maker. */
 export const rebalanceAll = internalMutation({

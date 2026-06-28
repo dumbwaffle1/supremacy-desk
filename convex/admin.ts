@@ -2,7 +2,11 @@ import { v } from "convex/values";
 import { mutation } from "./_generated/server";
 import { offerFor, round2 } from "./lib/game";
 import { stakeOf } from "./tournament";
-import { rebalanceMakers, requireLeagueAdmin } from "./leagues";
+import {
+  assignStandingsMakers,
+  rebalanceMakers,
+  requireLeagueAdmin,
+} from "./leagues";
 import { stageValidator } from "./schema";
 
 /** Admin override of a game's rate — bypasses window + lock; re-prices trades. */
@@ -202,13 +206,12 @@ export const assignMakers = mutation({
       if (game.status === "SETTLED" || game.status === "VOID") continue;
 
       if (!a.player) {
-        // Empty = clear the maker.
-        if (game.makerPlayer !== undefined)
-          await ctx.db.patch(a.gameId, { makerPlayer: undefined });
+        // Empty = clear the maker (and the manual flag → auto can fill again).
+        await ctx.db.patch(a.gameId, { makerPlayer: undefined, makerManual: false });
         continue;
       }
 
-      await ctx.db.patch(a.gameId, { makerPlayer: a.player });
+      await ctx.db.patch(a.gameId, { makerPlayer: a.player, makerManual: true });
       // The new maker can't also be a taker — drop any trade they had here.
       const selfTrades = await ctx.db
         .query("trades")
@@ -226,6 +229,41 @@ export const assignMakers = mutation({
       after: { assignments: applied },
     });
     return { count: applied.length };
+  },
+});
+
+/** Set/clear one game's maker (Games page). Manual set sticks (auto won't
+ *  change it); clearing reverts QF+ to the standings auto-assignment. */
+export const setMaker = mutation({
+  args: { gameId: v.id("games"), player: v.string() },
+  handler: async (ctx, { gameId, player }) => {
+    const game = await ctx.db.get(gameId);
+    if (!game || !game.leagueId) throw new Error("No such game.");
+    const { actor } = await requireLeagueAdmin(ctx, game.leagueId);
+    if (game.status === "SETTLED" || game.status === "VOID")
+      throw new Error("This game is closed.");
+
+    if (!player) {
+      await ctx.db.patch(gameId, { makerPlayer: undefined, makerManual: false });
+      await assignStandingsMakers(ctx, game.leagueId); // refill QF+ from standings
+    } else {
+      await ctx.db.patch(gameId, { makerPlayer: player, makerManual: true });
+      const selfTrades = await ctx.db
+        .query("trades")
+        .withIndex("by_game_player", (q) =>
+          q.eq("gameId", gameId).eq("player", player),
+        )
+        .collect();
+      await Promise.all(selfTrades.map((t) => ctx.db.delete(t._id)));
+    }
+    await ctx.db.insert("auditLogs", {
+      leagueId: game.leagueId,
+      actor,
+      action: "set_maker",
+      gameId,
+      after: { player: player || null },
+    });
+    return { ok: true as const };
   },
 });
 
