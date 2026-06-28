@@ -101,6 +101,32 @@ export const submitTrade = mutation({
   },
 });
 
+/** One-off cleanup: re-price every trade to its game's current bid/offer
+ *  (BUY → offer, SELL → bid). Fixes prices snapshotted under an older model. */
+export const repriceTrades = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const games = await ctx.db.query("games").collect();
+    let repriced = 0;
+    for (const game of games) {
+      if (game.bid === undefined) continue;
+      const offer = offerFor(game.bid);
+      const trades = await ctx.db
+        .query("trades")
+        .withIndex("by_game", (q) => q.eq("gameId", game._id))
+        .collect();
+      for (const t of trades) {
+        const price = t.side === "BUY" ? offer : game.bid;
+        if (t.priceTaken !== price) {
+          await ctx.db.patch(t._id, { priceTaken: price });
+          repriced++;
+        }
+      }
+    }
+    return { repriced };
+  },
+});
+
 /** All trades for a game (the book). */
 export const forGame = query({
   args: { gameId: v.id("games") },

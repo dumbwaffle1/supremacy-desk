@@ -41,6 +41,19 @@ export const overrideMakerBid = mutation({
       makerSubmittedAt: Date.now(),
       defaultedMaker: false,
     });
+    // Single rate per game → re-price existing trades to the corrected rate
+    // (BUY at the offer, SELL at the bid). Keeps priceTaken consistent.
+    const offer = offerFor(rounded);
+    const trades = await ctx.db
+      .query("trades")
+      .withIndex("by_game", (q) => q.eq("gameId", gameId))
+      .collect();
+    await Promise.all(
+      trades.map((t) =>
+        ctx.db.patch(t._id, { priceTaken: t.side === "BUY" ? offer : rounded }),
+      ),
+    );
+
     await ctx.db.insert("auditLogs", {
       actor,
       action: "admin_override_bid",
@@ -50,9 +63,9 @@ export const overrideMakerBid = mutation({
         quoteTeam: game.quoteTeam ?? null,
         defaultedMaker: game.defaultedMaker ?? false,
       },
-      after: { bid: rounded, offer: offerFor(rounded), quoteTeam: team },
+      after: { bid: rounded, offer, quoteTeam: team },
     });
-    return { bid: rounded, offer: offerFor(rounded), quoteTeam: team };
+    return { bid: rounded, offer, quoteTeam: team };
   },
 });
 

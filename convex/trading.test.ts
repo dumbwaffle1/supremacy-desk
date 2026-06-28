@@ -321,6 +321,34 @@ describe("admin override (past deadlines)", () => {
     expect(trades[0].priceTaken).toBeCloseTo(0.2); // SELL hits bid
   });
 
+  test("overriding the rate re-prices existing trades", async () => {
+    const t = convexTest(schema, modules);
+    const admin = await addAdmin(t);
+    await addPlayer(t, "Pascal", false);
+    await addPlayer(t, "Manas", false);
+    const gameId = await addGame(t, { maker: "Pascal", bid: 0.2, koUtc: koPast() });
+
+    await asPlayer(t, admin).mutation(api.admin.overrideTrade, {
+      gameId,
+      player: "Manas",
+      side: "SELL",
+    });
+    // Correct the rate to Canada (away) 1.3 — the SELL must re-price to 1.3.
+    await asPlayer(t, admin).mutation(api.admin.overrideMakerBid, {
+      gameId,
+      bid: 1.3,
+      quoteTeam: "AWAY",
+    });
+
+    const trade = await t.run((ctx) =>
+      ctx.db
+        .query("trades")
+        .withIndex("by_game", (q) => q.eq("gameId", gameId))
+        .first(),
+    );
+    expect(trade?.priceTaken).toBeCloseTo(1.3);
+  });
+
   test("non-admin is rejected", async () => {
     const t = convexTest(schema, modules);
     const yas = await addPlayer(t, "Yas");
