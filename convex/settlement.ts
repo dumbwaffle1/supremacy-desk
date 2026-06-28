@@ -9,7 +9,7 @@ import {
 import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
 import { settlementScore, mapStatus } from "./fixtures";
-import { stakeForStage, teamSupremacy, tradePnl } from "./lib/game";
+import { teamSupremacy, tradePnl } from "./lib/game";
 import { requireAdmin } from "./admin";
 
 const API_MATCHES = "https://api.football-data.org/v4/competitions/WC/matches";
@@ -26,7 +26,6 @@ async function applySettlement(
   away: number,
   actor: string,
 ) {
-  const stake = stakeForStage(game.stage);
   const quoteTeam = game.quoteTeam ?? "HOME";
   const sup = teamSupremacy(quoteTeam, home, away);
 
@@ -35,7 +34,8 @@ async function applySettlement(
     .withIndex("by_game", (q) => q.eq("gameId", game._id))
     .collect();
   for (const t of trades) {
-    await ctx.db.patch(t._id, { pnl: tradePnl(t.side, t.priceTaken, sup, stake) });
+    // Use each trade's snapshot stake (so a later stake edit doesn't rewrite it).
+    await ctx.db.patch(t._id, { pnl: tradePnl(t.side, t.priceTaken, sup, t.stake) });
   }
 
   await ctx.db.patch(game._id, {

@@ -2,7 +2,8 @@ import { v } from "convex/values";
 import { mutation, internalMutation, query, QueryCtx, MutationCtx } from "./_generated/server";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { ADMIN_EMAIL } from "../src/config/constants";
-import { offerFor, round2, stakeForStage } from "./lib/game";
+import { offerFor, round2 } from "./lib/game";
+import { getStakes, stakeOf } from "./tournament";
 import {
   DEFAULT_BID,
   makerDefaultDue,
@@ -88,7 +89,7 @@ export const submitTrade = mutation({
 
     const offer = offerFor(game.bid);
     const priceTaken = side === "BUY" ? offer : game.bid;
-    const stake = stakeForStage(game.stage);
+    const stake = await stakeOf(ctx, game.stage);
 
     await ctx.db.insert("trades", {
       gameId,
@@ -209,6 +210,7 @@ export const applyDeadlinePenalties = internalMutation({
     const now = Date.now();
     const games = await ctx.db.query("games").collect();
     const players = await ctx.db.query("players").collect();
+    const stakes = await getStakes(ctx);
     let defaults = 0;
     let forced = 0;
 
@@ -237,7 +239,7 @@ export const applyDeadlinePenalties = internalMutation({
       // 2) Force-long any non-maker player who hasn't traded by KO.
       if (now >= game.koUtc && game.bid !== undefined) {
         const offer = offerFor(game.bid);
-        const stake = stakeForStage(game.stage);
+        const stake = stakes[game.stage];
         const trades = await ctx.db
           .query("trades")
           .withIndex("by_game", (q) => q.eq("gameId", game._id))

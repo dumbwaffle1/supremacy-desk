@@ -9,6 +9,7 @@
  */
 
 import type * as admin from "../admin.js";
+import type * as auditLogs from "../auditLogs.js";
 import type * as auth from "../auth.js";
 import type * as crons from "../crons.js";
 import type * as fixtures from "../fixtures.js";
@@ -22,6 +23,7 @@ import type * as players from "../players.js";
 import type * as seed from "../seed.js";
 import type * as settlement from "../settlement.js";
 import type * as standings from "../standings.js";
+import type * as tournament from "../tournament.js";
 import type * as trades from "../trades.js";
 import type * as users from "../users.js";
 
@@ -33,6 +35,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   admin: typeof admin;
+  auditLogs: typeof auditLogs;
   auth: typeof auth;
   crons: typeof crons;
   fixtures: typeof fixtures;
@@ -46,6 +49,7 @@ declare const fullApi: ApiFromModules<{
   seed: typeof seed;
   settlement: typeof settlement;
   standings: typeof standings;
+  tournament: typeof tournament;
   trades: typeof trades;
   users: typeof users;
 }>;

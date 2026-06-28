@@ -1,7 +1,8 @@
 import { v } from "convex/values";
 import { query } from "./_generated/server";
 import { getAuthUserId } from "@convex-dev/auth/server";
-import { offerFor, round2, stakeForStage } from "./lib/game";
+import { offerFor, round2 } from "./lib/game";
+import { getStakes } from "./tournament";
 import { makerWindowOpen, takerWindowOpen } from "./lib/trading";
 import { ADMIN_EMAIL } from "../src/config/constants";
 
@@ -11,6 +12,7 @@ export const list = query({
   args: {},
   handler: async (ctx) => {
     const games = await ctx.db.query("games").collect();
+    const stakes = await getStakes(ctx);
     return games
       .sort((a, b) => a.gameNo - b.gameNo)
       .map((g) => ({
@@ -29,7 +31,7 @@ export const list = query({
           (g.quoteTeam ?? "HOME") === "AWAY" ? (g.away ?? "Away") : (g.home ?? "Home"),
         bid: g.bid ?? null,
         offer: g.bid !== undefined ? offerFor(g.bid) : null,
-        stake: stakeForStage(g.stage),
+        stake: stakes[g.stage],
         defaultedMaker: g.defaultedMaker ?? false,
         settleHome: g.settleHome ?? null,
         settleAway: g.settleAway ?? null,
@@ -49,7 +51,7 @@ export const detail = query({
 
     const now = Date.now();
     const offer = game.bid !== undefined ? offerFor(game.bid) : null;
-    const stake = stakeForStage(game.stage);
+    const stake = (await getStakes(ctx))[game.stage];
 
     const trades = await ctx.db
       .query("trades")

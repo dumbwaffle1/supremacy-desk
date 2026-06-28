@@ -1,20 +1,26 @@
-import { ScreenPlaceholder } from "@/components/ScreenPlaceholder";
-import { DevSeedPanel } from "@/components/DevSeedPanel";
-import { FixturesAdminPanel } from "@/components/FixturesAdminPanel";
-import { AdminOverridePanel } from "@/components/AdminOverridePanel";
 import { AdminOnly } from "@/components/AdminOnly";
+import { FixturesAdminPanel } from "@/components/FixturesAdminPanel";
+import { MakerDrawPanel } from "@/components/admin/MakerDrawPanel";
+import { RosterAdminPanel } from "@/components/admin/RosterAdminPanel";
+import { StakesAdminPanel } from "@/components/admin/StakesAdminPanel";
+import { AuditLogPanel } from "@/components/admin/AuditLogPanel";
+import { DevSeedPanel } from "@/components/DevSeedPanel";
 
 export default function AdminPage() {
   return (
     <AdminOnly>
       <div className="space-y-4">
-        <ScreenPlaceholder
-          title="Admin"
-          blurb="Settle / override / void, run the maker draws per stage, manage the roster and stakes, and read the audit log. Admins only."
-          comingIn="Prompt 9"
-        />
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Admin</h1>
+          <p className="text-sm text-muted-foreground">
+            Settle / override / void live on each game&apos;s page.
+          </p>
+        </div>
         <FixturesAdminPanel />
-        <AdminOverridePanel />
+        <MakerDrawPanel />
+        <RosterAdminPanel />
+        <StakesAdminPanel />
+        <AuditLogPanel />
         {process.env.NODE_ENV !== "production" && <DevSeedPanel />}
       </div>
     </AdminOnly>

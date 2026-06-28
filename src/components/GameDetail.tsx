@@ -19,6 +19,13 @@ type QuoteTeam = "HOME" | "AWAY";
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
+function toLocalInput(ms: number | null): string {
+  if (ms === null) return "";
+  const d = new Date(ms);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
 export function GameDetail({ gameId }: { gameId: string }) {
   const d = useQuery(api.games.detail, { gameId: gameId as Id<"games"> });
   const now = useNow();
@@ -469,10 +476,16 @@ function AdminGameControls({ detail: d }: { detail: Detail }) {
   const clearBid = useMutation(api.trades.clearBid);
   const settleManual = useMutation(api.settlement.settleManual);
   const voidGame = useMutation(api.settlement.voidGame);
+  const editFixture = useMutation(api.admin.editFixture);
   const players = useQuery(api.players.list);
   const [err, setErr] = useState<string | null>(null);
   const [sh, setSh] = useState("");
   const [sa, setSa] = useState("");
+  const [fx, setFx] = useState({
+    home: d.home ?? "",
+    away: d.away ?? "",
+    ko: toLocalInput(d.koUtc),
+  });
 
   const sideOf = (p: string) => d.book.find((b) => b.player === p)?.side ?? null;
   const wrap = async (fn: () => Promise<unknown>) => {
@@ -606,6 +619,48 @@ function AdminGameControls({ detail: d }: { detail: Detail }) {
         >
           Void this game
         </button>
+      </div>
+
+      <div className="mt-4 border-t border-border pt-4">
+        <p className="text-[11px] text-muted-foreground">Fix fixture (teams / kick-off)</p>
+        <div className="mt-2 flex gap-2">
+          <Input
+            className="h-9"
+            placeholder="home"
+            value={fx.home}
+            onChange={(e) => setFx((f) => ({ ...f, home: e.target.value }))}
+          />
+          <Input
+            className="h-9"
+            placeholder="away"
+            value={fx.away}
+            onChange={(e) => setFx((f) => ({ ...f, away: e.target.value }))}
+          />
+        </div>
+        <div className="mt-2 flex gap-2">
+          <Input
+            type="datetime-local"
+            className="h-9"
+            value={fx.ko}
+            onChange={(e) => setFx((f) => ({ ...f, ko: e.target.value }))}
+          />
+          <Button
+            size="sm"
+            className="h-9"
+            onClick={() =>
+              wrap(() =>
+                editFixture({
+                  gameId: d._id,
+                  home: fx.home,
+                  away: fx.away,
+                  koUtc: fx.ko ? new Date(fx.ko).getTime() : undefined,
+                }),
+              )
+            }
+          >
+            Save
+          </Button>
+        </div>
       </div>
 
       {err && <p className="mt-3 text-xs text-destructive">{err}</p>}
