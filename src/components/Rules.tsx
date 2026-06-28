@@ -29,8 +29,10 @@ export function Rules({ leagueId }: { leagueId: string }) {
 
       <Section title="The market">
         <p>
-          Each game has one <span className="text-foreground">maker</span> who quotes a
-          two-way price on a team&apos;s <span className="text-foreground">supremacy</span>{" "}
+          Each game has one{" "}
+          <span className="text-foreground">maker</span>{" "}
+          who quotes a two-way price on a team&apos;s{" "}
+          <span className="text-foreground">supremacy</span>{" "}
           (their goals minus the opponent&apos;s). The{" "}
           <span className="text-foreground">offer</span> is the{" "}
           <span className="text-foreground">bid + {width}</span>.
