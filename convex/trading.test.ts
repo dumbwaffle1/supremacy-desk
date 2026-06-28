@@ -184,6 +184,46 @@ describe("maker bid", () => {
       asPlayer(t, yas).mutation(api.trades.submitBid, { gameId, bid: 0.2 }),
     ).rejects.toThrow(/not the maker/i);
   });
+
+  test("maker can clear their rate (no trades), but not after a trade", async () => {
+    const t = convexTest(schema, modules);
+    const yas = await addPlayer(t, "Yas");
+    const cp = await addPlayer(t, "CP");
+    const gameId = await addGame(t, { maker: "Yas", bid: 0.3, koUtc: koOpen() });
+
+    await asPlayer(t, yas).mutation(api.trades.clearBid, { gameId });
+    expect(await t.run((ctx) => ctx.db.get(gameId)).then((g) => g?.bid)).toBeUndefined();
+
+    // re-quote, someone trades, then clear is locked
+    await asPlayer(t, yas).mutation(api.trades.submitBid, { gameId, bid: 0.3 });
+    await asPlayer(t, cp).mutation(api.trades.submitTrade, { gameId, side: "BUY" });
+    await expect(
+      asPlayer(t, yas).mutation(api.trades.clearBid, { gameId }),
+    ).rejects.toThrow(/already traded/i);
+  });
+
+  test("admin clear resets the market (rate + trades)", async () => {
+    const t = convexTest(schema, modules);
+    const admin = await t.run((ctx) =>
+      ctx.db.insert("users", { email: "admin@t.co", isAdmin: true }),
+    );
+    await addPlayer(t, "Pascal", false);
+    await addPlayer(t, "Yas", false);
+    const gameId = await addGame(t, { maker: "Pascal", bid: 0.2, koUtc: koPast() });
+    await asPlayer(t, admin).mutation(api.admin.overrideTrade, {
+      gameId,
+      player: "Yas",
+      side: "BUY",
+    });
+
+    await asPlayer(t, admin).mutation(api.trades.clearBid, { gameId });
+    const game = await t.run((ctx) => ctx.db.get(gameId));
+    const trades = await t.run((ctx) =>
+      ctx.db.query("trades").withIndex("by_game", (q) => q.eq("gameId", gameId)).collect(),
+    );
+    expect(game?.bid).toBeUndefined();
+    expect(trades).toHaveLength(0);
+  });
 });
 
 describe("taker trade", () => {

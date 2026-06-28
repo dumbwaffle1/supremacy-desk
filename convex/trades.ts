@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { mutation, internalMutation, query, QueryCtx, MutationCtx } from "./_generated/server";
 import { getAuthUserId } from "@convex-dev/auth/server";
+import { ADMIN_EMAIL } from "../src/config/constants";
 import { offerFor, round2, stakeForStage } from "./lib/game";
 import {
   DEFAULT_BID,
@@ -124,6 +125,64 @@ export const repriceTrades = internalMutation({
       }
     }
     return { repriced };
+  },
+});
+
+/** Clear a game's rate (back to "no rate"). Maker may clear while the window is
+ *  open and nobody has traded; an admin may clear anytime, which also removes
+ *  any trades on the market (a reset). Audited when done by an admin. */
+export const clearBid = mutation({
+  args: { gameId: v.id("games") },
+  handler: async (ctx, { gameId }) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Sign in first.");
+    const game = await ctx.db.get(gameId);
+    if (!game) throw new Error("No such game.");
+    if (game.status === "SETTLED" || game.status === "VOID")
+      throw new Error("This game is closed.");
+
+    const user = await ctx.db.get(userId);
+    const isAdmin =
+      !!user?.isAdmin ||
+      (user?.email ?? "").toLowerCase() === ADMIN_EMAIL.toLowerCase();
+    const claimed = await ctx.db
+      .query("players")
+      .withIndex("by_claimedBy", (q) => q.eq("claimedByUserId", userId))
+      .first();
+    const isMaker = claimed?.name === game.makerPlayer;
+
+    const trades = await ctx.db
+      .query("trades")
+      .withIndex("by_game", (q) => q.eq("gameId", gameId))
+      .collect();
+
+    if (!isAdmin) {
+      if (!isMaker) throw new Error("Only the maker or an admin can clear this.");
+      if (!makerWindowOpen(Date.now(), game.koUtc))
+        throw new Error("The maker window has closed.");
+      if (trades.length > 0)
+        throw new Error("Locked — someone has already traded.");
+    } else {
+      // Admin reset clears the trades too.
+      await Promise.all(trades.map((t) => ctx.db.delete(t._id)));
+    }
+
+    await ctx.db.patch(gameId, {
+      bid: undefined,
+      quoteTeam: undefined,
+      makerSubmittedAt: undefined,
+      defaultedMaker: undefined,
+    });
+
+    if (isAdmin) {
+      await ctx.db.insert("auditLogs", {
+        actor: user?.email ?? "admin",
+        action: "clear_rate",
+        gameId,
+        before: { bid: game.bid ?? null, clearedTrades: trades.length },
+      });
+    }
+    return { ok: true as const };
   },
 });
 

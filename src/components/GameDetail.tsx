@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
-import { ArrowLeft, Lock, Pencil, ShieldCheck } from "lucide-react";
+import { ArrowLeft, Lock, Pencil, ShieldCheck, Trash2 } from "lucide-react";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
@@ -293,6 +293,7 @@ function ActionCard({ detail: d }: { detail: Detail }) {
 
 function MakerAction({ detail: d }: { detail: Detail }) {
   const submitBid = useMutation(api.trades.submitBid);
+  const clearBid = useMutation(api.trades.clearBid);
   const [editing, setEditing] = useState(false);
 
   const hasRate = d.bid !== null;
@@ -312,9 +313,19 @@ function MakerAction({ detail: d }: { detail: Detail }) {
             </span>
           </span>
           {canEdit && (
-            <Button size="sm" variant="outline" className="border-border" onClick={() => setEditing(true)}>
-              <Pencil className="size-3.5" /> Amend
-            </Button>
+            <div className="flex items-center gap-1.5">
+              <Button size="sm" variant="outline" className="border-border" onClick={() => setEditing(true)}>
+                <Pencil className="size-3.5" /> Amend
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="border-border text-muted-foreground"
+                onClick={() => clearBid({ gameId: d._id })}
+              >
+                <Trash2 className="size-3.5" /> Clear
+              </Button>
+            </div>
           )}
         </div>
         {d.hasTrades && <p className="mt-2 text-xs text-muted-foreground">Locked — someone has traded.</p>}
@@ -439,6 +450,7 @@ function AdminGameControls({ detail: d }: { detail: Detail }) {
   const overrideBid = useMutation(api.admin.overrideMakerBid);
   const overrideTrade = useMutation(api.admin.overrideTrade);
   const removeTrade = useMutation(api.admin.removeTrade);
+  const clearBid = useMutation(api.trades.clearBid);
   const settleManual = useMutation(api.settlement.settleManual);
   const voidGame = useMutation(api.settlement.voidGame);
   const players = useQuery(api.players.list);
@@ -474,6 +486,14 @@ function AdminGameControls({ detail: d }: { detail: Detail }) {
             await overrideBid({ gameId: d._id, bid, quoteTeam });
           }}
         />
+        {d.bid !== null && (
+          <button
+            onClick={() => wrap(() => clearBid({ gameId: d._id }))}
+            className="mt-2 flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-destructive"
+          >
+            <Trash2 className="size-3.5" /> Clear rate &amp; trades
+          </button>
+        )}
       </div>
 
       {d.bid !== null && (
