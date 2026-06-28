@@ -195,6 +195,30 @@ export const repriceTrades = internalMutation({
   },
 });
 
+/** One-off: remove any trade by a game's own maker (the maker can't be a taker).
+ *  Fixes rows created by forced-longs before a maker was assigned. */
+export const fixMakerTrades = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const games = await ctx.db.query("games").collect();
+    let removed = 0;
+    for (const g of games) {
+      if (!g.makerPlayer) continue;
+      const selfTrades = await ctx.db
+        .query("trades")
+        .withIndex("by_game_player", (q) =>
+          q.eq("gameId", g._id).eq("player", g.makerPlayer!),
+        )
+        .collect();
+      for (const t of selfTrades) {
+        await ctx.db.delete(t._id);
+        removed++;
+      }
+    }
+    return { removed };
+  },
+});
+
 /** All trades for a game (the book). */
 export const forGame = query({
   args: { gameId: v.id("games") },
@@ -222,6 +246,8 @@ export const applyDeadlinePenalties = internalMutation({
       if (!game.leagueId) continue;
       if (game.status === "SETTLED" || game.status === "VOID") continue;
       if (game.koUtc === undefined) continue;
+      // No maker assigned ⇒ no market: don't default a rate or force longs.
+      if (!game.makerPlayer) continue;
 
       if (game.bid === undefined && makerDefaultDue(now, game.koUtc)) {
         await ctx.db.patch(game._id, {

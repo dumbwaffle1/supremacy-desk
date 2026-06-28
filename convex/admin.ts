@@ -190,6 +190,14 @@ export const assignMakers = mutation({
       if (!game || game.leagueId !== leagueId) continue;
       if (game.status === "SETTLED" || game.status === "VOID") continue;
       await ctx.db.patch(a.gameId, { makerPlayer: a.player });
+      // The new maker can't also be a taker — drop any trade they had here.
+      const selfTrades = await ctx.db
+        .query("trades")
+        .withIndex("by_game_player", (q) =>
+          q.eq("gameId", a.gameId).eq("player", a.player),
+        )
+        .collect();
+      await Promise.all(selfTrades.map((t) => ctx.db.delete(t._id)));
       applied.push({ gameNo: game.gameNo, player: a.player });
     }
     await ctx.db.insert("auditLogs", {
