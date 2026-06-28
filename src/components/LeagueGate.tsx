@@ -22,22 +22,24 @@ export function LeagueGate({
 
   if (league === undefined) return <FullScreen>Loading…</FullScreen>;
 
-  if (league === null || !league.me.isMember) {
-    return (
-      <div className="mx-auto flex min-h-dvh max-w-md flex-col items-center justify-center gap-3 px-6 text-center">
-        <p className="text-sm text-muted-foreground">
-          {league === null
-            ? "That Supremacy doesn't exist."
-            : "You're not in this Supremacy."}
-        </p>
-        <Link href="/" className="text-sm text-primary underline underline-offset-4">
-          Back to your Supremacies
-        </Link>
-      </div>
-    );
+  const notAllowed = (msg: string) => (
+    <div className="mx-auto flex min-h-dvh max-w-md flex-col items-center justify-center gap-3 px-6 text-center">
+      <p className="text-sm text-muted-foreground">{msg}</p>
+      <Link href="/" className="text-sm text-primary underline underline-offset-4">
+        Back to your Supremacies
+      </Link>
+    </div>
+  );
+
+  if (league === null) return notAllowed("That Supremacy doesn't exist.");
+
+  const me = league.me;
+  if (!me.isMember && !me.isSuperAdmin) {
+    return notAllowed("You're not in this Supremacy.");
   }
 
-  if (!league.me.player) {
+  // Members must claim a seat; a super-admin can peek without one.
+  if (me.isMember && !me.player) {
     return <ClaimSeat leagueId={leagueId} leagueName={league.name} />;
   }
 
@@ -45,8 +47,9 @@ export function LeagueGate({
     <LeagueChrome
       leagueId={leagueId}
       leagueName={league.name}
-      playerName={league.me.player}
-      isAdmin={league.me.isAdmin}
+      playerName={me.player}
+      peek={!me.isMember}
+      isAdmin={me.isAdmin}
     >
       {children}
     </LeagueChrome>

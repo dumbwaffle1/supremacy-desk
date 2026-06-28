@@ -11,12 +11,14 @@ export function LeagueChrome({
   leagueId,
   leagueName,
   playerName,
+  peek = false,
   isAdmin,
   children,
 }: {
   leagueId: string;
   leagueName: string;
-  playerName: string;
+  playerName: string | null;
+  peek?: boolean;
   isAdmin: boolean;
   children: ReactNode;
 }) {
@@ -39,13 +41,19 @@ export function LeagueChrome({
             </span>
           </div>
           <div className="flex items-center gap-2">
-            <span className="flex items-center gap-1.5 rounded-full bg-secondary px-2.5 py-1 text-xs font-medium">
-              <span
-                className="inline-block size-2 rounded-full"
-                style={{ backgroundColor: colorFor(playerName) }}
-              />
-              {playerName}
-            </span>
+            {peek || !playerName ? (
+              <span className="rounded-full bg-primary/15 px-2.5 py-1 text-xs font-medium text-primary">
+                admin · peek
+              </span>
+            ) : (
+              <span className="flex items-center gap-1.5 rounded-full bg-secondary px-2.5 py-1 text-xs font-medium">
+                <span
+                  className="inline-block size-2 rounded-full"
+                  style={{ backgroundColor: colorFor(playerName) }}
+                />
+                {playerName}
+              </span>
+            )}
             <button
               onClick={() => signOut()}
               aria-label="Sign out"

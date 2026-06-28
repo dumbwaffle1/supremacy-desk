@@ -13,8 +13,12 @@ import { BrandMark } from "@/components/BrandMark";
 
 export function Home() {
   const leagues = useQuery(api.leagues.mine);
+  const me = useQuery(api.users.me);
+  const others = useQuery(api.leagues.others);
   const { signOut } = useAuthActions();
   const [mode, setMode] = useState<"list" | "create" | "join">("list");
+  const [tab, setTab] = useState<"mine" | "others">("mine");
+  const isSuper = !!me?.isAdmin;
 
   return (
     <div className="mx-auto min-h-dvh max-w-md px-5 pb-16 pt-5">
@@ -39,11 +43,66 @@ export function Home() {
       ) : (
         <>
           <h1 className="mt-6 text-2xl font-semibold tracking-tight">
-            Your Supremacies
+            {isSuper && tab === "others" ? "Other Supremacies" : "Your Supremacies"}
           </h1>
 
+          {isSuper && (
+            <div className="mt-3 grid grid-cols-2 gap-1 rounded-lg bg-secondary p-1">
+              {(["mine", "others"] as const).map((t) => (
+                <button
+                  key={t}
+                  onClick={() => setTab(t)}
+                  className={`rounded-md px-2 py-1.5 text-xs font-medium transition-colors ${
+                    tab === t ? "bg-background text-foreground" : "text-muted-foreground"
+                  }`}
+                >
+                  {t === "mine" ? "Mine" : "Others"}
+                </button>
+              ))}
+            </div>
+          )}
+
           <div className="mt-4 space-y-2.5">
-            {leagues === undefined ? (
+            {tab === "others" && isSuper ? (
+              others === undefined ? (
+                <div className="panel h-20 animate-pulse rounded-2xl" />
+              ) : others.length === 0 ? (
+                <div className="panel rounded-2xl p-6 text-center text-sm text-muted-foreground">
+                  No other Supremacies.
+                </div>
+              ) : (
+                others.map((l) => (
+                  <Link
+                    key={l._id}
+                    href={`/l/${l._id}`}
+                    className="panel panel-hover flex items-center gap-3 rounded-2xl p-4"
+                  >
+                    <div className="grid size-10 shrink-0 place-items-center rounded-xl bg-secondary">
+                      <Trophy className="size-5 text-muted-foreground" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate font-semibold">{l.name}</div>
+                      <div className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
+                        <span className="flex items-center gap-1">
+                          <Users className="size-3" /> {l.playerCount}
+                        </span>
+                        <span>·</span>
+                        <span>{l.settledCount} settled</span>
+                        {l.ownerEmail && (
+                          <>
+                            <span>·</span>
+                            <span className="truncate">{l.ownerEmail}</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    <span className="rounded bg-primary/15 px-1.5 py-0.5 text-[10px] text-primary">
+                      peek
+                    </span>
+                  </Link>
+                ))
+              )
+            ) : leagues === undefined ? (
               <div className="panel h-20 animate-pulse rounded-2xl" />
             ) : leagues.length === 0 ? (
               <div className="panel rounded-2xl p-6 text-center text-sm text-muted-foreground">

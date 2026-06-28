@@ -109,6 +109,53 @@ export const mine = query({
   },
 });
 
+/** All leagues the super-admin doesn't own/belong to (peek list). */
+export const others = query({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) return [];
+    const user = await ctx.db.get(userId);
+    const isSuper =
+      !!user?.isAdmin ||
+      (user?.email ?? "").toLowerCase() === ADMIN_EMAIL.toLowerCase();
+    if (!isSuper) return [];
+
+    const all = await ctx.db.query("leagues").collect();
+    const memberships = await ctx.db
+      .query("memberships")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .collect();
+    const joined = new Set<string>(memberships.map((m) => m.leagueId));
+
+    const rest = all.filter(
+      (l) => l.ownerUserId !== userId && !joined.has(l._id),
+    );
+    return Promise.all(
+      rest.map(async (l) => {
+        const players = await ctx.db
+          .query("players")
+          .withIndex("by_league", (q) => q.eq("leagueId", l._id))
+          .collect();
+        const owner = l.ownerUserId ? await ctx.db.get(l.ownerUserId) : null;
+        const settled = await ctx.db
+          .query("games")
+          .withIndex("by_league_status", (q) =>
+            q.eq("leagueId", l._id).eq("status", "SETTLED"),
+          )
+          .collect();
+        return {
+          _id: l._id,
+          name: l.name,
+          playerCount: players.length,
+          settledCount: settled.length,
+          ownerEmail: owner?.email ?? null,
+        };
+      }),
+    );
+  },
+});
+
 /** One league + the viewer's role/seat. */
 export const get = query({
   args: { leagueId: v.id("leagues") },
@@ -119,13 +166,12 @@ export const get = query({
     const userId = await getAuthUserId(ctx);
     let player: string | null = null;
     let isOwner = false;
-    let isAdmin = false;
+    let isSuperAdmin = false;
     let isMember = false;
     if (userId) {
       const user = await ctx.db.get(userId);
       isOwner = league.ownerUserId === userId;
-      isAdmin =
-        isOwner ||
+      isSuperAdmin =
         !!user?.isAdmin ||
         (user?.email ?? "").toLowerCase() === ADMIN_EMAIL.toLowerCase();
       const p = await ctx.db
@@ -143,6 +189,7 @@ export const get = query({
         .first();
       isMember = !!m || isOwner || !!p;
     }
+    const isAdmin = isOwner || isSuperAdmin;
 
     return {
       _id: league._id,
@@ -150,8 +197,8 @@ export const get = query({
       tournament: league.tournament,
       width: league.width,
       stakes: await getStakes(ctx, leagueId),
-      inviteCode: isMember ? league.inviteCode : null,
-      me: { player, isOwner, isAdmin, isMember },
+      inviteCode: isMember || isSuperAdmin ? league.inviteCode : null,
+      me: { player, isOwner, isAdmin, isMember, isSuperAdmin },
     };
   },
 });
