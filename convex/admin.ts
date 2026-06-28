@@ -5,7 +5,7 @@ import { offerFor, round2, stakeForStage } from "./lib/game";
 import { ADMIN_EMAIL } from "../src/config/constants";
 
 /** Authenticated admin guard. Returns a label for the audit `actor` field. */
-async function requireAdmin(ctx: MutationCtx): Promise<{ actor: string }> {
+export async function requireAdmin(ctx: MutationCtx): Promise<{ actor: string }> {
   const userId = await getAuthUserId(ctx);
   if (!userId) throw new Error("Sign in first.");
   const user = await ctx.db.get(userId);

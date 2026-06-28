@@ -94,6 +94,9 @@ export default defineSchema({
     liveHome: v.optional(v.number()),
     liveAway: v.optional(v.number()),
     liveStatusShort: v.optional(v.string()),
+    // Settle only when a final score repeats across two polls (ignore transients).
+    settleCandidateHome: v.optional(v.number()),
+    settleCandidateAway: v.optional(v.number()),
   })
     .index("by_gameNo", ["gameNo"])
     .index("by_stage", ["stage"])

@@ -36,7 +36,7 @@ export function fdStageToStage(stage: string): Stage | null {
 }
 
 /** football-data.org status -> our stored Game.status. */
-function mapStatus(status: string): "SCHEDULED" | "LIVE" | "FT" {
+export function mapStatus(status: string): "SCHEDULED" | "LIVE" | "FT" {
   if (["IN_PLAY", "PAUSED"].includes(status)) return "LIVE";
   if (["FINISHED", "AWARDED"].includes(status)) return "FT";
   return "SCHEDULED"; // SCHEDULED, TIMED, POSTPONED, SUSPENDED, CANCELLED

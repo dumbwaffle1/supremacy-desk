@@ -14,4 +14,9 @@ crons.cron("sync fixtures (pm)", "0 18 * * *", internal.fixtures.sync, {});
 // materialises the penalty rows. Every 5 minutes is plenty.
 crons.interval("deadline penalties", { minutes: 5 }, internal.trades.applyDeadlinePenalties, {});
 
+// Live scores + fully automatic settlement (spec §3, §8). One call per tick
+// (only when a game is in the in-play/finished window); settles after two
+// consecutive identical final polls.
+crons.interval("poll scores", { minutes: 10 }, internal.settlement.pollScores, {});
+
 export default crons;

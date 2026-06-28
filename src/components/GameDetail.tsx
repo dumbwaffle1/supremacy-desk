@@ -439,8 +439,12 @@ function AdminGameControls({ detail: d }: { detail: Detail }) {
   const overrideBid = useMutation(api.admin.overrideMakerBid);
   const overrideTrade = useMutation(api.admin.overrideTrade);
   const removeTrade = useMutation(api.admin.removeTrade);
+  const settleManual = useMutation(api.settlement.settleManual);
+  const voidGame = useMutation(api.settlement.voidGame);
   const players = useQuery(api.players.list);
   const [err, setErr] = useState<string | null>(null);
+  const [sh, setSh] = useState("");
+  const [sa, setSa] = useState("");
 
   const sideOf = (p: string) => d.book.find((b) => b.player === p)?.side ?? null;
   const wrap = async (fn: () => Promise<unknown>) => {
@@ -516,6 +520,58 @@ function AdminGameControls({ detail: d }: { detail: Detail }) {
             })}
         </div>
       )}
+
+      <div className="mt-4 border-t border-border pt-4">
+        <p className="text-[11px] text-muted-foreground">
+          Settle / void (emergency — normal settlement is automatic)
+        </p>
+        <div className="mt-2 flex items-center gap-2">
+          <Input
+            type="number"
+            min="0"
+            inputMode="numeric"
+            placeholder={d.home ?? "home"}
+            className="h-9"
+            value={sh}
+            onChange={(e) => setSh(e.target.value)}
+          />
+          <span className="text-muted-foreground">–</span>
+          <Input
+            type="number"
+            min="0"
+            inputMode="numeric"
+            placeholder={d.away ?? "away"}
+            className="h-9"
+            value={sa}
+            onChange={(e) => setSa(e.target.value)}
+          />
+          <Button
+            size="sm"
+            className="h-9"
+            disabled={sh === "" || sa === ""}
+            onClick={() =>
+              wrap(async () => {
+                await settleManual({
+                  gameId: d._id,
+                  home: Number(sh),
+                  away: Number(sa),
+                });
+                setSh("");
+                setSa("");
+              })
+            }
+          >
+            Settle
+          </Button>
+        </div>
+        <button
+          onClick={() => wrap(() => voidGame({ gameId: d._id }))}
+          className="mt-2 text-xs text-destructive underline-offset-4 hover:underline"
+        >
+          Void this game
+        </button>
+      </div>
+
       {err && <p className="mt-3 text-xs text-destructive">{err}</p>}
     </div>
   );

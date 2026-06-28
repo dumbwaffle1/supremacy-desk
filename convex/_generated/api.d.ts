@@ -18,6 +18,7 @@ import type * as lib_game from "../lib/game.js";
 import type * as lib_trading from "../lib/trading.js";
 import type * as players from "../players.js";
 import type * as seed from "../seed.js";
+import type * as settlement from "../settlement.js";
 import type * as standings from "../standings.js";
 import type * as trades from "../trades.js";
 import type * as users from "../users.js";
@@ -39,6 +40,7 @@ declare const fullApi: ApiFromModules<{
   "lib/trading": typeof lib_trading;
   players: typeof players;
   seed: typeof seed;
+  settlement: typeof settlement;
   standings: typeof standings;
   trades: typeof trades;
   users: typeof users;

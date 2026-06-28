@@ -358,3 +358,66 @@ describe("admin override (past deadlines)", () => {
     ).rejects.toThrow(/admins only/i);
   });
 });
+
+describe("settlement", () => {
+  async function addAdmin(t: ReturnType<typeof convexTest>) {
+    return await t.run((ctx) =>
+      ctx.db.insert("users", { email: "admin@t.co", isAdmin: true }),
+    );
+  }
+
+  test("settle fills P&L and standings (worked example)", async () => {
+    const t = convexTest(schema, modules);
+    const admin = await addAdmin(t);
+    await addPlayer(t, "Pascal", false); // maker
+    await addPlayer(t, "Yas", false); // taker
+    const gameId = await addGame(t, { maker: "Pascal", koUtc: koPast() });
+
+    await asPlayer(t, admin).mutation(api.admin.overrideMakerBid, {
+      gameId,
+      bid: 1.3,
+      quoteTeam: "AWAY", // Canada (away)
+    });
+    await asPlayer(t, admin).mutation(api.admin.overrideTrade, {
+      gameId,
+      player: "Yas",
+      side: "SELL",
+    });
+    // Canada win 1–0 → home 0, away 1.
+    await asPlayer(t, admin).mutation(api.settlement.settleManual, {
+      gameId,
+      home: 0,
+      away: 1,
+    });
+
+    const game = await t.run((ctx) => ctx.db.get(gameId));
+    expect(game?.status).toBe("SETTLED");
+
+    const st = await t.query(api.standings.standings, {});
+    expect(st.rows.find((r) => r.player === "Yas")?.pnl).toBeCloseTo(3);
+    expect(st.rows.find((r) => r.player === "Pascal")?.pnl).toBeCloseTo(-3);
+  });
+
+  test("void excludes a game from standings", async () => {
+    const t = convexTest(schema, modules);
+    const admin = await addAdmin(t);
+    await addPlayer(t, "Pascal", false);
+    await addPlayer(t, "Yas", false);
+    const gameId = await addGame(t, { maker: "Pascal", bid: 0.2, koUtc: koPast() });
+    await asPlayer(t, admin).mutation(api.admin.overrideTrade, {
+      gameId,
+      player: "Yas",
+      side: "BUY",
+    });
+    await asPlayer(t, admin).mutation(api.settlement.settleManual, {
+      gameId,
+      home: 2,
+      away: 0,
+    });
+    await asPlayer(t, admin).mutation(api.settlement.voidGame, { gameId });
+
+    const st = await t.query(api.standings.standings, {});
+    expect(st.settledCount).toBe(0);
+    expect(st.rows.every((r) => r.pnl === 0)).toBe(true);
+  });
+});
