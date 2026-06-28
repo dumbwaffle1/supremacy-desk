@@ -57,10 +57,10 @@ export function ClaimSeat() {
         className="space-y-6"
       >
         <div className="text-center">
-          <p className="text-[11px] font-medium uppercase tracking-[0.2em] text-brand">
+          <p className="text-[11px] font-medium uppercase tracking-[0.2em] text-primary">
             Welcome
           </p>
-          <h1 className="font-display mt-1 text-3xl font-bold tracking-tight">
+          <h1 className="mt-1 text-3xl font-semibold tracking-tight">
             Claim your seat
           </h1>
           <p className="mt-2 text-sm text-muted-foreground">

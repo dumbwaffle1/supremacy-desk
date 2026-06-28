@@ -25,10 +25,10 @@ export function BottomTabBar({ isAdmin = false }: { isAdmin?: boolean }) {
 
   return (
     <nav
-      className="fixed inset-x-0 bottom-0 z-40 flex justify-center px-4 pt-2"
-      style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 12px)" }}
+      className="glass fixed inset-x-0 bottom-0 z-40 border-t border-border"
+      style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
     >
-      <ul className="glass flex w-full max-w-md items-stretch gap-1 rounded-2xl border border-border p-1.5 shadow-[0_16px_40px_-20px_rgba(0,0,0,0.9)]">
+      <ul className="mx-auto flex max-w-md items-stretch">
         {tabs.map(({ href, label, icon: Icon }) => {
           const active = isActive(pathname, href);
           return (
@@ -36,29 +36,30 @@ export function BottomTabBar({ isAdmin = false }: { isAdmin?: boolean }) {
               <Link
                 href={href}
                 aria-current={active ? "page" : undefined}
-                className={cn(
-                  "relative flex flex-col items-center gap-1 rounded-xl py-2 text-[10px] font-medium tracking-wide transition-colors",
-                  active
-                    ? "text-foreground"
-                    : "text-muted-foreground hover:text-foreground/80",
-                )}
+                className="relative flex flex-col items-center gap-1 py-2.5"
               >
                 {active && (
                   <motion.span
                     layoutId="tab-active"
-                    transition={{ type: "spring", stiffness: 500, damping: 38 }}
-                    className="absolute inset-0 rounded-xl border border-border bg-accent/60"
-                    style={{ boxShadow: "inset 0 1px 0 0 rgba(255,255,255,0.05)" }}
+                    transition={{ type: "spring", stiffness: 520, damping: 40 }}
+                    className="absolute -top-px h-0.5 w-8 rounded-full bg-primary"
                   />
                 )}
                 <Icon
                   className={cn(
-                    "relative size-[18px] transition-colors",
-                    active && "text-brand",
+                    "size-[19px] transition-colors",
+                    active ? "text-primary" : "text-muted-foreground",
                   )}
                   aria-hidden
                 />
-                <span className="relative">{label}</span>
+                <span
+                  className={cn(
+                    "text-[10px] font-medium transition-colors",
+                    active ? "text-foreground" : "text-muted-foreground",
+                  )}
+                >
+                  {label}
+                </span>
               </Link>
             </li>
           );
