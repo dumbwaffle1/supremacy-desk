@@ -14,9 +14,11 @@ import type * as fixtures from "../fixtures.js";
 import type * as games from "../games.js";
 import type * as http from "../http.js";
 import type * as lib_game from "../lib/game.js";
+import type * as lib_trading from "../lib/trading.js";
 import type * as players from "../players.js";
 import type * as seed from "../seed.js";
 import type * as standings from "../standings.js";
+import type * as trades from "../trades.js";
 import type * as users from "../users.js";
 
 import type {
@@ -32,9 +34,11 @@ declare const fullApi: ApiFromModules<{
   games: typeof games;
   http: typeof http;
   "lib/game": typeof lib_game;
+  "lib/trading": typeof lib_trading;
   players: typeof players;
   seed: typeof seed;
   standings: typeof standings;
+  trades: typeof trades;
   users: typeof users;
 }>;
 

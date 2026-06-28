@@ -9,4 +9,9 @@ const crons = cronJobs();
 crons.cron("sync fixtures (am)", "0 6 * * *", internal.fixtures.sync, {});
 crons.cron("sync fixtures (pm)", "0 18 * * *", internal.fixtures.sync, {});
 
+// Apply deadline penalties (default maker rate, forced longs) near kick-offs.
+// Server-side window locks in the mutations are the real guard; this just
+// materialises the penalty rows. Every 5 minutes is plenty.
+crons.interval("deadline penalties", { minutes: 5 }, internal.trades.applyDeadlinePenalties, {});
+
 export default crons;

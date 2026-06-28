@@ -1,0 +1,229 @@
+import { convexTest } from "convex-test";
+import { describe, expect, test } from "vitest";
+import schema from "./schema";
+import { api, internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
+import {
+  makerWindowOpen,
+  takerWindowOpen,
+  makerDefaultDue,
+  forcedLongDue,
+  MAKER_LEAD_MS,
+} from "./lib/trading";
+
+const modules = import.meta.glob("./**/*.ts");
+
+const HOUR = 60 * 60 * 1000;
+const now = () => Date.now();
+const koOpen = () => now() + 3 * HOUR; // maker + taker open
+const koMakerClosed = () => now() + 30 * 60 * 1000; // <60min: maker closed, taker open
+const koPast = () => now() - 60 * 1000; // both closed
+
+async function addPlayer(
+  t: ReturnType<typeof convexTest>,
+  name: string,
+  claim = true,
+) {
+  return await t.run(async (ctx) => {
+    if (!claim) return await ctx.db.insert("players", { name });
+    const userId = await ctx.db.insert("users", { email: `${name}@t.co` });
+    await ctx.db.insert("players", { name, claimedByUserId: userId });
+    return userId;
+  });
+}
+
+function asPlayer(t: ReturnType<typeof convexTest>, userId: Id<"users">) {
+  return t.withIdentity({ subject: `${userId}|session` });
+}
+
+async function addGame(
+  t: ReturnType<typeof convexTest>,
+  opts: {
+    maker: string;
+    koUtc?: number;
+    bid?: number;
+    stage?: "R32" | "R16" | "QF" | "SF" | "3PO" | "F";
+    status?: "SCHEDULED" | "LIVE" | "FT" | "SETTLED" | "VOID";
+  },
+) {
+  return await t.run((ctx) =>
+    ctx.db.insert("games", {
+      gameNo: 1,
+      stage: opts.stage ?? "R32",
+      status: opts.status ?? "SCHEDULED",
+      makerPlayer: opts.maker,
+      koUtc: opts.koUtc,
+      ...(opts.bid !== undefined ? { bid: opts.bid } : {}),
+    }),
+  );
+}
+
+describe("window pure logic (spec §7)", () => {
+  const ko = 1_000_000_000_000;
+  test("maker window closes 60 min before KO", () => {
+    expect(makerWindowOpen(ko - MAKER_LEAD_MS - 1, ko)).toBe(true);
+    expect(makerWindowOpen(ko - MAKER_LEAD_MS, ko)).toBe(false);
+    expect(makerDefaultDue(ko - MAKER_LEAD_MS, ko)).toBe(true);
+  });
+  test("taker window closes at KO", () => {
+    expect(takerWindowOpen(ko - 1, ko)).toBe(true);
+    expect(takerWindowOpen(ko, ko)).toBe(false);
+    expect(forcedLongDue(ko, ko)).toBe(true);
+  });
+  test("unknown KO leaves windows open", () => {
+    expect(makerWindowOpen(now(), null)).toBe(true);
+    expect(takerWindowOpen(now(), undefined)).toBe(true);
+  });
+});
+
+describe("maker bid", () => {
+  test("submits, offer = bid + 0.2, then locks", async () => {
+    const t = convexTest(schema, modules);
+    const yas = await addPlayer(t, "Yas");
+    const gameId = await addGame(t, { maker: "Yas", koUtc: koOpen() });
+
+    const res = await asPlayer(t, yas).mutation(api.trades.submitBid, {
+      gameId,
+      bid: 0.3,
+    });
+    expect(res.offer).toBeCloseTo(0.5);
+
+    await expect(
+      asPlayer(t, yas).mutation(api.trades.submitBid, { gameId, bid: 0.1 }),
+    ).rejects.toThrow(/locked/i);
+  });
+
+  test("rejects when maker window has closed", async () => {
+    const t = convexTest(schema, modules);
+    const yas = await addPlayer(t, "Yas");
+    const gameId = await addGame(t, { maker: "Yas", koUtc: koMakerClosed() });
+    await expect(
+      asPlayer(t, yas).mutation(api.trades.submitBid, { gameId, bid: 0.2 }),
+    ).rejects.toThrow(/window has closed/i);
+  });
+
+  test("rejects a non-maker", async () => {
+    const t = convexTest(schema, modules);
+    await addPlayer(t, "Pascal");
+    const yas = await addPlayer(t, "Yas");
+    const gameId = await addGame(t, { maker: "Pascal", koUtc: koOpen() });
+    await expect(
+      asPlayer(t, yas).mutation(api.trades.submitBid, { gameId, bid: 0.2 }),
+    ).rejects.toThrow(/not the maker/i);
+  });
+});
+
+describe("taker trade", () => {
+  test("BUY lifts the offer, SELL hits the bid; stake from stage", async () => {
+    const t = convexTest(schema, modules);
+    await addPlayer(t, "Pascal");
+    const yas = await addPlayer(t, "Yas");
+    const cp = await addPlayer(t, "CP");
+    const gameId = await addGame(t, { maker: "Pascal", bid: 0.2, koUtc: koOpen() });
+
+    const buy = await asPlayer(t, yas).mutation(api.trades.submitTrade, {
+      gameId,
+      side: "BUY",
+    });
+    expect(buy.priceTaken).toBeCloseTo(0.4); // offer
+    expect(buy.stake).toBe(10); // R32
+
+    const sell = await asPlayer(t, cp).mutation(api.trades.submitTrade, {
+      gameId,
+      side: "SELL",
+    });
+    expect(sell.priceTaken).toBeCloseTo(0.2); // bid
+  });
+
+  test("one trade per game (locked)", async () => {
+    const t = convexTest(schema, modules);
+    await addPlayer(t, "Pascal");
+    const yas = await addPlayer(t, "Yas");
+    const gameId = await addGame(t, { maker: "Pascal", bid: 0.2, koUtc: koOpen() });
+    await asPlayer(t, yas).mutation(api.trades.submitTrade, { gameId, side: "BUY" });
+    await expect(
+      asPlayer(t, yas).mutation(api.trades.submitTrade, { gameId, side: "SELL" }),
+    ).rejects.toThrow(/already traded/i);
+  });
+
+  test("maker cannot trade their own game", async () => {
+    const t = convexTest(schema, modules);
+    const yas = await addPlayer(t, "Yas");
+    const gameId = await addGame(t, { maker: "Yas", bid: 0.2, koUtc: koOpen() });
+    await expect(
+      asPlayer(t, yas).mutation(api.trades.submitTrade, { gameId, side: "BUY" }),
+    ).rejects.toThrow(/your own game/i);
+  });
+
+  test("rejects after kick-off", async () => {
+    const t = convexTest(schema, modules);
+    await addPlayer(t, "Pascal");
+    const yas = await addPlayer(t, "Yas");
+    const gameId = await addGame(t, { maker: "Pascal", bid: 0.2, koUtc: koPast() });
+    await expect(
+      asPlayer(t, yas).mutation(api.trades.submitTrade, { gameId, side: "BUY" }),
+    ).rejects.toThrow(/closed/i);
+  });
+
+  test("rejects with no rate yet", async () => {
+    const t = convexTest(schema, modules);
+    await addPlayer(t, "Pascal");
+    const yas = await addPlayer(t, "Yas");
+    const gameId = await addGame(t, { maker: "Pascal", koUtc: koOpen() });
+    await expect(
+      asPlayer(t, yas).mutation(api.trades.submitTrade, { gameId, side: "BUY" }),
+    ).rejects.toThrow(/no rate/i);
+  });
+});
+
+describe("deadline penalties (spec §7)", () => {
+  test("defaults a missing maker rate and forces longs at KO", async () => {
+    const t = convexTest(schema, modules);
+    // roster: Pascal (maker), Yas, CP, Manas — none traded
+    await addPlayer(t, "Pascal", false);
+    await addPlayer(t, "Yas", false);
+    await addPlayer(t, "CP", false);
+    await addPlayer(t, "Manas", false);
+    const gameId = await addGame(t, { maker: "Pascal", koUtc: koPast() });
+
+    const r = await t.mutation(internal.trades.applyDeadlinePenalties, {});
+    expect(r.defaults).toBe(1);
+    expect(r.forced).toBe(3); // everyone except the maker
+
+    const { game, trades } = await t.run(async (ctx) => ({
+      game: await ctx.db.get(gameId),
+      trades: await ctx.db
+        .query("trades")
+        .withIndex("by_game", (q) => q.eq("gameId", gameId))
+        .collect(),
+    }));
+    expect(game?.bid).toBe(0);
+    expect(game?.defaultedMaker).toBe(true);
+    expect(trades).toHaveLength(3);
+    for (const tr of trades) {
+      expect(tr.side).toBe("BUY");
+      expect(tr.forcedLong).toBe(true);
+      expect(tr.priceTaken).toBeCloseTo(0.2); // offer = 0 + 0.2
+    }
+  });
+
+  test("is idempotent — no duplicate forced longs", async () => {
+    const t = convexTest(schema, modules);
+    await addPlayer(t, "Pascal", false);
+    await addPlayer(t, "Yas", false);
+    const gameId = await addGame(t, { maker: "Pascal", koUtc: koPast() });
+
+    await t.mutation(internal.trades.applyDeadlinePenalties, {});
+    const second = await t.mutation(internal.trades.applyDeadlinePenalties, {});
+    expect(second.defaults).toBe(0);
+    expect(second.forced).toBe(0);
+
+    const trades = await t.run((ctx) =>
+      ctx.db
+        .query("trades")
+        .withIndex("by_game", (q) => q.eq("gameId", gameId))
+        .collect(),
+    );
+    expect(trades).toHaveLength(1); // just Yas
+  });
+});
