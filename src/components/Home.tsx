@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
 import { useAuthActions } from "@convex-dev/auth/react";
-import { ArrowRight, Check, LogOut, Plus, Trophy, Users, X } from "lucide-react";
+import { ArrowRight, LogOut, Plus, Trophy, Users, X } from "lucide-react";
 import { api } from "../../convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -170,7 +170,6 @@ function CreateLeague({ onDone }: { onDone: () => void }) {
   const [myName, setMyName] = useState("");
   const [players, setPlayers] = useState<string[]>([]);
   const [playerInput, setPlayerInput] = useState("");
-  const [voidPlayed, setVoidPlayed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -190,7 +189,7 @@ function CreateLeague({ onDone }: { onDone: () => void }) {
     setBusy(true);
     setErr(null);
     try {
-      const { leagueId } = await create({ name, myName, players, voidPlayed });
+      const { leagueId } = await create({ name, myName, players });
       router.push(`/l/${leagueId}`);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Failed.");
@@ -267,28 +266,9 @@ function CreateLeague({ onDone }: { onDone: () => void }) {
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={() => setVoidPlayed((v) => !v)}
-          className="flex w-full items-center justify-between gap-3 rounded-lg bg-secondary/40 px-3 py-2.5 text-left"
-        >
-          <span className="text-sm">
-            Void games already kicked off
-            <span className="mt-0.5 block text-[11px] text-muted-foreground">
-              Starting mid-tournament? Skip matches that are already underway.
-            </span>
-          </span>
-          <span
-            className={`grid size-5 shrink-0 place-items-center rounded border ${
-              voidPlayed ? "border-primary bg-primary text-primary-foreground" : "border-border"
-            }`}
-          >
-            {voidPlayed && <Check className="size-3.5" />}
-          </span>
-        </button>
-
         <p className="text-[11px] text-muted-foreground">
-          Stakes default to £10/20/30/50/50/100 per stage — editable in Settings → Admin.
+          Matches already kicked off are skipped (void). Stakes default to
+          £10/20/30/50/50/100 per stage — editable in Settings → Admin.
         </p>
         <Button className="h-11 w-full font-semibold" disabled={busy || !myName.trim()} onClick={submit}>
           {busy ? "Creating…" : "Create Supremacy"}

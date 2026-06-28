@@ -2,7 +2,7 @@ import { mutation, query, MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import { getAuthUserId } from "@convex-dev/auth/server";
-import { requireLeagueAdmin } from "./leagues";
+import { rebalanceMakers, requireLeagueAdmin } from "./leagues";
 import { ADMIN_EMAIL } from "../src/config/constants";
 
 /** The signed-in user (global identity). Per-league seat/role comes from
@@ -83,6 +83,7 @@ export const addAndClaimPlayer = mutation({
       addedByUserId: userId,
     });
     await ensureMembership(ctx, leagueId, userId);
+    await rebalanceMakers(ctx, leagueId); // new name → include in the rotation
     return { name: trimmed };
   },
 });

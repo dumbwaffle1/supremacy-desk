@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import { mutation } from "./_generated/server";
 import { offerFor, round2 } from "./lib/game";
 import { stakeOf } from "./tournament";
-import { requireLeagueAdmin } from "./leagues";
+import { rebalanceMakers, requireLeagueAdmin } from "./leagues";
 import { stageValidator } from "./schema";
 
 /** Admin override of a game's rate — bypasses window + lock; re-prices trades. */
@@ -144,6 +144,7 @@ export const addPlayer = mutation({
       action: "add_player",
       after: { name: trimmed },
     });
+    await rebalanceMakers(ctx, leagueId); // include the new name in the rotation
     return { ok: true as const };
   },
 });
@@ -156,12 +157,21 @@ export const removePlayer = mutation({
     const { actor } = await requireLeagueAdmin(ctx, player.leagueId);
     if (player.claimedByUserId)
       throw new Error("That name is claimed — clear the claim first.");
+    // OK to remove if they only make OPEN games (those get reassigned). Block
+    // if they're the maker on a game that's started or has a rate.
     const games = await ctx.db
       .query("games")
       .withIndex("by_league", (q) => q.eq("leagueId", player.leagueId!))
       .collect();
-    if (games.some((g) => g.makerPlayer === player.name))
-      throw new Error("That player is a maker — reassign first.");
+    if (
+      games.some(
+        (g) =>
+          g.makerPlayer === player.name &&
+          (g.bid !== undefined || g.status !== "SCHEDULED"),
+      )
+    ) {
+      throw new Error("That player makes a game in progress — reassign it first.");
+    }
     await ctx.db.delete(playerId);
     await ctx.db.insert("auditLogs", {
       leagueId: player.leagueId,
@@ -169,6 +179,7 @@ export const removePlayer = mutation({
       action: "remove_player",
       before: { name: player.name },
     });
+    await rebalanceMakers(ctx, player.leagueId); // reassign their open games
     return { ok: true as const };
   },
 });

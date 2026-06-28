@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { mutation, query, MutationCtx } from "./_generated/server";
+import { mutation, query, internalMutation, MutationCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { makeInviteCode } from "./lib/invite";
@@ -11,6 +11,7 @@ import {
   STAGES,
   STAKES,
   WIDTH,
+  type Stage,
 } from "../src/config/constants";
 
 /** Owner of the league (or a global super-admin) may run admin actions on it. */
@@ -31,14 +32,22 @@ export async function requireLeagueAdmin(
   return { actor: user?.email ?? "owner", userId };
 }
 
-/** Copy the fixture games (no maker/bid/trades) from a source league. If
- *  voidPlayed, games that have already kicked off are VOID (a late-joining
- *  league can't play matches that are over). */
+const STAGE_ORDER: Record<Stage, number> = {
+  R32: 0,
+  R16: 1,
+  QF: 2,
+  SF: 3,
+  "3PO": 4,
+  F: 5,
+};
+
+/** Copy the fixture games (no maker/bid/trades) from a source league. Games that
+ *  have already kicked off are VOID — a new league can't play matches that are
+ *  already underway/over. */
 async function seedGamesFrom(
   ctx: MutationCtx,
   leagueId: Id<"leagues">,
   sourceLeagueId: Id<"leagues">,
-  voidPlayed: boolean,
 ) {
   const now = Date.now();
   const src = await ctx.db
@@ -47,8 +56,6 @@ async function seedGamesFrom(
     .collect();
   for (const g of src) {
     const played = g.koUtc !== undefined && g.koUtc <= now;
-    const status =
-      voidPlayed && played ? "VOID" : g.status === "SETTLED" ? "FT" : g.status;
     await ctx.db.insert("games", {
       leagueId,
       fixtureId: g.fixtureId,
@@ -58,10 +65,60 @@ async function seedGamesFrom(
       home: g.home,
       away: g.away,
       koUtc: g.koUtc,
-      status,
+      status: played ? "VOID" : g.status === "SETTLED" ? "FT" : g.status,
     });
   }
 }
+
+/** Assign makers round-robin across OPEN games (not started, no rate, no
+ *  trades), so every playable game has a maker. Committed/started/settled games
+ *  keep theirs. Called on creation + whenever the roster changes. */
+export async function rebalanceMakers(ctx: MutationCtx, leagueId: Id<"leagues">) {
+  const players = (
+    await ctx.db
+      .query("players")
+      .withIndex("by_league", (q) => q.eq("leagueId", leagueId))
+      .collect()
+  )
+    .sort((a, b) => a._creationTime - b._creationTime)
+    .map((p) => p.name);
+  if (players.length === 0) return;
+
+  const now = Date.now();
+  const games = (
+    await ctx.db
+      .query("games")
+      .withIndex("by_league", (q) => q.eq("leagueId", leagueId))
+      .collect()
+  ).sort(
+    (a, b) =>
+      STAGE_ORDER[a.stage] - STAGE_ORDER[b.stage] ||
+      (a.koUtc ?? Infinity) - (b.koUtc ?? Infinity) ||
+      a.gameNo - b.gameNo,
+  );
+
+  let i = 0;
+  for (const g of games) {
+    const open =
+      g.status === "SCHEDULED" &&
+      g.bid === undefined &&
+      (g.koUtc === undefined || g.koUtc > now);
+    if (!open) continue;
+    const player = players[i % players.length];
+    if (g.makerPlayer !== player) await ctx.db.patch(g._id, { makerPlayer: player });
+    i++;
+  }
+}
+
+/** One-off: ensure every league's open games have a maker. */
+export const rebalanceAll = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const leagues = await ctx.db.query("leagues").collect();
+    for (const l of leagues) await rebalanceMakers(ctx, l._id);
+    return { leagues: leagues.length };
+  },
+});
 
 /** Leagues you own or have joined, enriched for the homepage. */
 export const mine = query({
@@ -240,12 +297,11 @@ export const create = mutation({
     name: v.string(),
     myName: v.string(),
     players: v.array(v.string()),
-    voidPlayed: v.optional(v.boolean()),
     stakes: v.optional(
       v.array(v.object({ stage: stageValidator, amount: v.number() })),
     ),
   },
-  handler: async (ctx, { name, myName, players, voidPlayed, stakes }) => {
+  handler: async (ctx, { name, myName, players, stakes }) => {
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("Sign in first.");
     const leagueName = name.trim() || "WC2026 Supremacy";
@@ -281,8 +337,10 @@ export const create = mutation({
     // Seed this league's games from the earliest league (which holds fixtures).
     const source = await ctx.db.query("leagues").order("asc").first();
     if (source && source._id !== leagueId) {
-      await seedGamesFrom(ctx, leagueId, source._id, voidPlayed ?? false);
+      await seedGamesFrom(ctx, leagueId, source._id);
     }
+    // Give every open game a maker straight away.
+    await rebalanceMakers(ctx, leagueId);
 
     await ctx.db.insert("auditLogs", {
       leagueId,
