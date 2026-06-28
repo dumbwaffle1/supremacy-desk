@@ -1,6 +1,7 @@
 import { ScreenPlaceholder } from "@/components/ScreenPlaceholder";
 import { DevSeedPanel } from "@/components/DevSeedPanel";
 import { FixturesAdminPanel } from "@/components/FixturesAdminPanel";
+import { AdminOverridePanel } from "@/components/AdminOverridePanel";
 import { AdminOnly } from "@/components/AdminOnly";
 
 export default function AdminPage() {
@@ -13,6 +14,7 @@ export default function AdminPage() {
           comingIn="Prompt 9"
         />
         <FixturesAdminPanel />
+        <AdminOverridePanel />
         {process.env.NODE_ENV !== "production" && <DevSeedPanel />}
       </div>
     </AdminOnly>

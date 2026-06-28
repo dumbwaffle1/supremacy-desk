@@ -29,7 +29,12 @@ export function SignIn() {
     setStatus("sending");
     setError(null);
     try {
-      await signIn("resend", { email: email.trim() });
+      // Send the magic link back to wherever we are (localhost or the live
+      // domain), not the deployment's SITE_URL — see auth.ts redirect callback.
+      await signIn("resend", {
+        email: email.trim(),
+        redirectTo: window.location.origin,
+      });
       setStatus("sent");
     } catch (err) {
       setStatus("error");

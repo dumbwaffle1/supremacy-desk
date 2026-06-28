@@ -227,3 +227,63 @@ describe("deadline penalties (spec §7)", () => {
     expect(trades).toHaveLength(1); // just Yas
   });
 });
+
+describe("admin override (past deadlines)", () => {
+  async function addAdmin(t: ReturnType<typeof convexTest>) {
+    return await t.run((ctx) =>
+      ctx.db.insert("users", { email: "admin@t.co", isAdmin: true }),
+    );
+  }
+
+  test("admin sets a maker rate on a past-KO game, with an audit row", async () => {
+    const t = convexTest(schema, modules);
+    const admin = await addAdmin(t);
+    await addPlayer(t, "Pascal", false);
+    const gameId = await addGame(t, { maker: "Pascal", koUtc: koPast() });
+
+    const r = await asPlayer(t, admin).mutation(api.admin.overrideMakerBid, {
+      gameId,
+      bid: 0.3,
+    });
+    expect(r.offer).toBeCloseTo(0.5);
+
+    const { game, audits } = await t.run(async (ctx) => ({
+      game: await ctx.db.get(gameId),
+      audits: await ctx.db.query("auditLogs").collect(),
+    }));
+    expect(game?.bid).toBe(0.3);
+    expect(audits.some((a) => a.action === "admin_override_bid")).toBe(true);
+  });
+
+  test("admin can add a trade for a player who hasn't logged in", async () => {
+    const t = convexTest(schema, modules);
+    const admin = await addAdmin(t);
+    await addPlayer(t, "Pascal", false);
+    await addPlayer(t, "Manas", false); // never logged in
+    const gameId = await addGame(t, { maker: "Pascal", bid: 0.2, koUtc: koPast() });
+
+    await asPlayer(t, admin).mutation(api.admin.overrideTrade, {
+      gameId,
+      player: "Manas",
+      side: "SELL",
+    });
+    const trades = await t.run((ctx) =>
+      ctx.db
+        .query("trades")
+        .withIndex("by_game", (q) => q.eq("gameId", gameId))
+        .collect(),
+    );
+    expect(trades).toHaveLength(1);
+    expect(trades[0].player).toBe("Manas");
+    expect(trades[0].priceTaken).toBeCloseTo(0.2); // SELL hits bid
+  });
+
+  test("non-admin is rejected", async () => {
+    const t = convexTest(schema, modules);
+    const yas = await addPlayer(t, "Yas");
+    const gameId = await addGame(t, { maker: "Pascal", koUtc: koPast() });
+    await expect(
+      asPlayer(t, yas).mutation(api.admin.overrideMakerBid, { gameId, bid: 0.2 }),
+    ).rejects.toThrow(/admins only/i);
+  });
+});

@@ -51,6 +51,23 @@ const ResendMagicLink = Resend({
 export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
   providers: [ResendMagicLink],
   callbacks: {
+    // Send the magic link back to the origin the user signed in FROM (localhost
+    // in dev, the Vercel/custom domain in prod), validated against an allowlist.
+    // This lets one deployment serve both without the link hard-coding SITE_URL.
+    async redirect({ redirectTo }) {
+      const allowed = new Set(
+        [process.env.SITE_URL, ...(process.env.ALLOWED_ORIGINS ?? "").split(",")]
+          .map((s) => (s ?? "").trim().replace(/\/$/, ""))
+          .filter(Boolean),
+      );
+      if (redirectTo.startsWith("/")) return `${process.env.SITE_URL}${redirectTo}`;
+      try {
+        if (allowed.has(new URL(redirectTo).origin)) return redirectTo;
+      } catch {
+        // fall through
+      }
+      throw new Error(`redirectTo not allowed: ${redirectTo}`);
+    },
     // Flag isAdmin when the verified email matches ADMIN_EMAIL. Runs on first
     // sign-in (and subsequent ones) — see spec §9.1 / Prompt 2.
     async afterUserCreatedOrUpdated(ctx, { userId, profile }) {
