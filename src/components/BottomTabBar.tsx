@@ -3,16 +3,34 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion } from "motion/react";
-import { BookOpen, LineChart, ListOrdered, Scale, Settings } from "lucide-react";
+import { useQuery } from "convex/react";
+import {
+  BookOpen,
+  LineChart,
+  ListOrdered,
+  ListTodo,
+  MessageSquare,
+  Scale,
+  Settings,
+} from "lucide-react";
+import { api } from "../../convex/_generated/api";
+import type { Id } from "../../convex/_generated/dataModel";
 import { cn } from "@/lib/utils";
 
 export function BottomTabBar({ leagueId }: { leagueId: string }) {
   const pathname = usePathname();
   const base = `/l/${leagueId}`;
+  const lid = leagueId as Id<"leagues">;
+
+  const todoData = useQuery(api.games.todo, { leagueId: lid });
+  const unreadFeed = useQuery(api.feed.unreadCount, { leagueId: lid });
+  const todoCount = todoData?.todo.length ?? 0;
 
   const tabs = [
     { href: base, label: "Desk", icon: LineChart, exact: true },
     { href: `${base}/games`, label: "Games", icon: ListOrdered },
+    { href: `${base}/todo`, label: "To-do", icon: ListTodo, badge: todoCount },
+    { href: `${base}/feed`, label: "Feed", icon: MessageSquare, badge: unreadFeed ?? 0 },
     { href: `${base}/settle`, label: "Settle", icon: Scale },
     { href: `${base}/rules`, label: "Rules", icon: BookOpen },
     { href: `${base}/settings`, label: "Settings", icon: Settings },
@@ -27,7 +45,7 @@ export function BottomTabBar({ leagueId }: { leagueId: string }) {
       style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
     >
       <ul className="mx-auto flex max-w-md items-stretch">
-        {tabs.map(({ href, label, icon: Icon, exact }) => {
+        {tabs.map(({ href, label, icon: Icon, exact, badge }) => {
           const active = isActive(href, exact);
           return (
             <li key={href} className="flex-1">
@@ -43,13 +61,20 @@ export function BottomTabBar({ leagueId }: { leagueId: string }) {
                     className="absolute -top-px h-0.5 w-8 rounded-full bg-primary"
                   />
                 )}
-                <Icon
-                  className={cn(
-                    "size-[19px] transition-colors",
-                    active ? "text-primary" : "text-muted-foreground",
-                  )}
-                  aria-hidden
-                />
+                <span className="relative">
+                  <Icon
+                    className={cn(
+                      "size-[19px] transition-colors",
+                      active ? "text-primary" : "text-muted-foreground",
+                    )}
+                    aria-hidden
+                  />
+                  {badge ? (
+                    <span className="absolute -right-2.5 -top-1.5 grid h-[15px] min-w-[15px] place-items-center rounded-full bg-primary px-1 text-[9px] font-bold leading-none text-primary-foreground">
+                      {badge > 9 ? "9+" : badge}
+                    </span>
+                  ) : null}
+                </span>
                 <span
                   className={cn(
                     "text-[10px] font-medium transition-colors",

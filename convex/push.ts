@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import { mutation, query, internalMutation, internalQuery } from "./_generated/server";
 import { getAuthUserId } from "@convex-dev/auth/server";
 
-const DEFAULT_PREFS = { maker: true, taker: true, settlement: true };
+const DEFAULT_PREFS = { maker: true, taker: true, settlement: true, tradeOnRate: true };
 
 /** My notification preferences (defaults to all on). */
 export const prefs = query({
@@ -15,13 +15,23 @@ export const prefs = query({
       .withIndex("by_user", (q) => q.eq("userId", userId))
       .first();
     return row
-      ? { maker: row.maker, taker: row.taker, settlement: row.settlement }
+      ? {
+          maker: row.maker,
+          taker: row.taker,
+          settlement: row.settlement,
+          tradeOnRate: row.tradeOnRate ?? true,
+        }
       : DEFAULT_PREFS;
   },
 });
 
 export const setPrefs = mutation({
-  args: { maker: v.boolean(), taker: v.boolean(), settlement: v.boolean() },
+  args: {
+    maker: v.boolean(),
+    taker: v.boolean(),
+    settlement: v.boolean(),
+    tradeOnRate: v.boolean(),
+  },
   handler: async (ctx, prefsArgs) => {
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("Sign in first.");

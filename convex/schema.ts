@@ -62,7 +62,33 @@ export default defineSchema({
     maker: v.boolean(), // "rate due" reminders
     taker: v.boolean(), // "trade closes at KO" reminders
     settlement: v.boolean(), // end-of-game outcome summaries
+    tradeOnRate: v.optional(v.boolean()), // "someone traded on your rate" (default on)
   }).index("by_user", ["userId"]),
+
+  // League activity feed + chat. Auto-posted "rate"/"trade" lines and free-text
+  // "chat" messages share one stream, ordered by _creationTime.
+  feed: defineTable({
+    leagueId: v.id("leagues"),
+    kind: v.union(v.literal("rate"), v.literal("trade"), v.literal("chat")),
+    actor: v.optional(v.string()), // player name, or chat author display name
+    authorUserId: v.optional(v.id("users")), // who acted/posted (own-vs-unread)
+    gameId: v.optional(v.id("games")),
+    matchup: v.optional(v.string()), // "France v Canada" snapshot
+    team: v.optional(v.string()), // quoted team (rate/trade)
+    bid: v.optional(v.number()),
+    offer: v.optional(v.number()),
+    side: v.optional(sideValidator), // trade
+    price: v.optional(v.number()), // trade price taken
+    text: v.optional(v.string()), // chat body
+    at: v.optional(v.number()), // original event time (backfill); else use _creationTime
+  }).index("by_league", ["leagueId"]),
+
+  // Per-user, per-league last-seen feed time → drives the unread badge.
+  feedReads: defineTable({
+    leagueId: v.id("leagues"),
+    userId: v.id("users"),
+    lastSeen: v.number(),
+  }).index("by_league_user", ["leagueId", "userId"]),
 
   // Web-push subscriptions (one device per row).
   pushSubs: defineTable({

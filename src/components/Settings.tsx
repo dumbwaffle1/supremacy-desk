@@ -89,7 +89,13 @@ export function Settings({ leagueId }: { leagueId: string }) {
 
   const update = (patch: Partial<NonNullable<typeof prefs>>) => {
     if (!prefs) return;
-    setPrefs({ maker: prefs.maker, taker: prefs.taker, settlement: prefs.settlement, ...patch });
+    setPrefs({
+      maker: prefs.maker,
+      taker: prefs.taker,
+      settlement: prefs.settlement,
+      tradeOnRate: prefs.tradeOnRate,
+      ...patch,
+    });
   };
 
   const enable = async () => {
@@ -160,6 +166,13 @@ export function Settings({ leagueId }: { leagueId: string }) {
             desc="When a game is about to kick off and you haven't traded."
             checked={prefs?.taker ?? true}
             onChange={(v) => update({ taker: v })}
+            disabled={!enabled || !prefs}
+          />
+          <PrefRow
+            title="Trades on your rate"
+            desc="When you're the maker and someone trades against your price."
+            checked={prefs?.tradeOnRate ?? true}
+            onChange={(v) => update({ tradeOnRate: v })}
             disabled={!enabled || !prefs}
           />
           <PrefRow

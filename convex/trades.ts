@@ -5,9 +5,11 @@ import {
   query,
   MutationCtx,
 } from "./_generated/server";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import { getAuthUserId } from "@convex-dev/auth/server";
+import { internal } from "./_generated/api";
 import { ADMIN_EMAIL } from "../src/config/constants";
+import { postFeed } from "./feed";
 import { offerFor, round2 } from "./lib/game";
 import { getStakes, stakeOf } from "./tournament";
 import {
@@ -34,6 +36,43 @@ async function claimedPlayer(
   return { userId, player: player.name };
 }
 
+/** Push the maker when a taker trades on their rate (respects the pref; opt-out only). */
+async function notifyMakerOfTrade(
+  ctx: MutationCtx,
+  game: Doc<"games">,
+  taker: string,
+  side: "BUY" | "SELL",
+  team: string,
+  price: number,
+) {
+  if (!game.leagueId || !game.makerPlayer || game.makerPlayer === taker) return;
+  const roster = await ctx.db
+    .query("players")
+    .withIndex("by_league", (q) => q.eq("leagueId", game.leagueId!))
+    .collect();
+  const makerUserId = roster.find((p) => p.name === game.makerPlayer)?.claimedByUserId;
+  if (!makerUserId) return;
+
+  const pref = await ctx.db
+    .query("notifPrefs")
+    .withIndex("by_user", (q) => q.eq("userId", makerUserId))
+    .first();
+  if (pref && pref.tradeOnRate === false) return; // default (undefined) = on
+
+  const sub = await ctx.db
+    .query("pushSubs")
+    .withIndex("by_user", (q) => q.eq("userId", makerUserId))
+    .first();
+  if (!sub) return;
+
+  await ctx.scheduler.runAfter(0, internal.pushNode.send, {
+    userId: makerUserId,
+    title: "Trade on your rate",
+    body: `${taker} ${side} ${team} @ ${price.toFixed(1)}`,
+    url: `/l/${game.leagueId}/games/${game._id}`,
+  });
+}
+
 /** Maker submits a single bid on a chosen team; offer = bid + WIDTH. */
 export const submitBid = mutation({
   args: {
@@ -44,7 +83,7 @@ export const submitBid = mutation({
   handler: async (ctx, { gameId, bid, quoteTeam }) => {
     const game = await ctx.db.get(gameId);
     if (!game || !game.leagueId) throw new Error("No such game.");
-    const { player } = await claimedPlayer(ctx, game.leagueId);
+    const { userId, player } = await claimedPlayer(ctx, game.leagueId);
     if (game.status === "SETTLED" || game.status === "VOID")
       throw new Error("This game is closed.");
     if (game.makerPlayer !== player)
@@ -61,12 +100,25 @@ export const submitBid = mutation({
     const rounded = round2(bid);
     if (rounded < -20 || rounded > 20) throw new Error("Bid out of range.");
 
+    const qt = quoteTeam ?? "HOME";
     await ctx.db.patch(gameId, {
       bid: rounded,
-      quoteTeam: quoteTeam ?? "HOME",
+      quoteTeam: qt,
       makerSubmittedAt: Date.now(),
     });
-    return { bid: rounded, offer: offerFor(rounded), quoteTeam: quoteTeam ?? "HOME" };
+    const team = qt === "AWAY" ? (game.away ?? "Away") : (game.home ?? "Home");
+    await postFeed(ctx, {
+      leagueId: game.leagueId,
+      kind: "rate",
+      actor: player,
+      authorUserId: userId,
+      gameId,
+      matchup: `${game.home ?? "?"} v ${game.away ?? "?"}`,
+      team,
+      bid: rounded,
+      offer: offerFor(rounded),
+    });
+    return { bid: rounded, offer: offerFor(rounded), quoteTeam: qt };
   },
 });
 
@@ -76,7 +128,7 @@ export const submitTrade = mutation({
   handler: async (ctx, { gameId, side }) => {
     const game = await ctx.db.get(gameId);
     if (!game || !game.leagueId) throw new Error("No such game.");
-    const { player } = await claimedPlayer(ctx, game.leagueId);
+    const { userId, player } = await claimedPlayer(ctx, game.leagueId);
     if (game.status === "SETTLED" || game.status === "VOID")
       throw new Error("This game is closed.");
     if (game.makerPlayer === player)
@@ -107,6 +159,22 @@ export const submitTrade = mutation({
       stake,
       submittedAt: Date.now(),
     });
+
+    const quoteTeam = game.quoteTeam ?? "HOME";
+    const team = quoteTeam === "AWAY" ? (game.away ?? "Away") : (game.home ?? "Home");
+    await postFeed(ctx, {
+      leagueId: game.leagueId,
+      kind: "trade",
+      actor: player,
+      authorUserId: userId,
+      gameId,
+      matchup: `${game.home ?? "?"} v ${game.away ?? "?"}`,
+      team,
+      side,
+      price: priceTaken,
+    });
+    await notifyMakerOfTrade(ctx, game, player, side, team, priceTaken);
+
     return { side, priceTaken, stake };
   },
 });
