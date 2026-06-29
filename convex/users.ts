@@ -24,6 +24,22 @@ export const me = query({
   },
 });
 
+/** Heartbeat: record that the signed-in user is active. Throttled to one write
+ *  per 5 minutes so frequent navigations don't hammer the DB. */
+export const heartbeat = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) return;
+    const user = await ctx.db.get(userId);
+    if (!user) return;
+    const now = Date.now();
+    if (!user.lastActiveAt || now - user.lastActiveAt > 5 * 60 * 1000) {
+      await ctx.db.patch(userId, { lastActiveAt: now });
+    }
+  },
+});
+
 /** Claim an unclaimed roster name in a league (one seat per user per league). */
 export const claimPlayer = mutation({
   args: { leagueId: v.id("leagues"), playerId: v.id("players") },

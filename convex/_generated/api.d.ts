@@ -12,6 +12,7 @@ import type * as admin from "../admin.js";
 import type * as auditLogs from "../auditLogs.js";
 import type * as auth from "../auth.js";
 import type * as crons from "../crons.js";
+import type * as dashboard from "../dashboard.js";
 import type * as feed from "../feed.js";
 import type * as fixtures from "../fixtures.js";
 import type * as games from "../games.js";
@@ -44,6 +45,7 @@ declare const fullApi: ApiFromModules<{
   auditLogs: typeof auditLogs;
   auth: typeof auth;
   crons: typeof crons;
+  dashboard: typeof dashboard;
   feed: typeof feed;
   fixtures: typeof fixtures;
   games: typeof games;

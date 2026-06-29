@@ -4,6 +4,7 @@ import { ReactNode } from "react";
 import { Authenticated, AuthLoading, Unauthenticated } from "convex/react";
 import { SignIn } from "@/components/SignIn";
 import { BrandMark } from "@/components/BrandMark";
+import { ActivityHeartbeat } from "@/components/ActivityHeartbeat";
 
 export function FullScreen({ children }: { children: ReactNode }) {
   return (
@@ -28,7 +29,10 @@ export function AuthGate({ children }: { children: ReactNode }) {
       <Unauthenticated>
         <SignIn />
       </Unauthenticated>
-      <Authenticated>{children}</Authenticated>
+      <Authenticated>
+        <ActivityHeartbeat />
+        {children}
+      </Authenticated>
     </>
   );
 }

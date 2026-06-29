@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery } from "convex/react";
 import { useAuthActions } from "@convex-dev/auth/react";
-import { ArrowRight, Check, Copy, LogOut, Plus, Share2, Trophy, Users, X } from "lucide-react";
+import { ArrowRight, BarChart3, Check, Copy, LogOut, Plus, Share2, Trophy, Users, X } from "lucide-react";
 import { api } from "../../convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,13 +33,24 @@ export function Home() {
           <BrandMark />
           <span className="text-base font-semibold tracking-tight">Supremacy</span>
         </div>
-        <button
-          onClick={() => signOut()}
-          aria-label="Sign out"
-          className="grid size-8 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-        >
-          <LogOut className="size-4" />
-        </button>
+        <div className="flex items-center gap-1">
+          {isSuper && (
+            <Link
+              href="/admin"
+              aria-label="Usage dashboard"
+              className="grid size-8 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            >
+              <BarChart3 className="size-4" />
+            </Link>
+          )}
+          <button
+            onClick={() => signOut()}
+            aria-label="Sign out"
+            className="grid size-8 place-items-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          >
+            <LogOut className="size-4" />
+          </button>
+        </div>
       </header>
 
       {mode === "create" ? (

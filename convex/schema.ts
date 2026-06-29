@@ -39,6 +39,7 @@ export default defineSchema({
     displayName: v.optional(v.string()),
     isAdmin: v.optional(v.boolean()), // global super-admin
     playerName: v.optional(v.string()),
+    lastActiveAt: v.optional(v.number()), // heartbeat: last app open
   })
     .index("email", ["email"])
     .index("phone", ["phone"]),
