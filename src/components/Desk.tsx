@@ -12,10 +12,11 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { Crown } from "lucide-react";
+import { ChevronRight, Crown } from "lucide-react";
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 import { colorFor, STAGE_LABEL, type Stage } from "@/config/constants";
+import { displayStatus, STATUS_STYLE } from "@/lib/gameDisplay";
 import { Flag } from "@/lib/flags";
 
 /* ── helpers ──────────────────────────────────────────────────────────── */
@@ -268,6 +269,7 @@ function UpNext({ leagueId }: { leagueId: Id<"leagues"> }) {
 
 function PastGames({ leagueId }: { leagueId: Id<"leagues"> }) {
   const games = useQuery(api.games.list, { leagueId });
+  const now = useNow(30000);
 
   if (games === undefined) {
     return <div className="panel h-40 animate-pulse rounded-2xl" />;
@@ -286,37 +288,47 @@ function PastGames({ leagueId }: { leagueId: Id<"leagues"> }) {
       </div>
       <ul className="divide-y divide-border">
         {past.map((g) => {
-          const voided = g.status === "VOID";
-          const hasScore = g.settleHome !== null && g.settleAway !== null;
+          const ds = displayStatus(g.status, g.koUtc, now);
+          const settled =
+            g.settleHome !== null && g.settleAway !== null
+              ? `${g.settleHome}–${g.settleAway}`
+              : null;
           return (
             <li key={g._id}>
               <Link
                 href={`/l/${leagueId}/games/${g._id}`}
-                className="flex items-center justify-between px-4 py-3 transition-colors hover:bg-secondary/40"
+                className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-accent/40"
               >
-                <div className="flex items-center gap-2">
-                  <span className="rounded bg-secondary px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                    {STAGE_LABEL[g.stage as Stage]}
-                  </span>
-                  <span className="flex items-center gap-1.5 text-sm font-medium">
-                    <Flag name={g.home} />
-                    {g.home ?? "TBD"}
-                    <span className="text-muted-foreground">v</span>
-                    <Flag name={g.away} />
-                    {g.away ?? "TBD"}
-                  </span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${STATUS_STYLE[ds]}`}>
+                      {ds}
+                    </span>
+                    <span className="flex items-center gap-1.5 truncate text-sm font-medium">
+                      <Flag name={g.home} />
+                      {g.home ?? "TBD"}
+                      <span className="text-muted-foreground">v</span>
+                      <Flag name={g.away} />
+                      {g.away ?? "TBD"}
+                    </span>
+                  </div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    maker <span className="text-foreground">{g.makerPlayer ?? "—"}</span>
+                    {g.bid !== null && (
+                      <span className="tnum">
+                        {"  ·  "}
+                        {g.quoteTeamName} {g.bid.toFixed(1)} / {g.offer?.toFixed(1)}
+                      </span>
+                    )}
+                  </div>
                 </div>
-                {voided ? (
-                  <span className="text-[11px] font-semibold uppercase text-muted-foreground">
-                    void
-                  </span>
-                ) : hasScore ? (
-                  <span className="tnum text-sm font-semibold">
-                    {g.settleHome}–{g.settleAway}
-                  </span>
-                ) : (
-                  <span className="text-[11px] text-muted-foreground">—</span>
-                )}
+
+                <div className="flex items-center gap-2">
+                  {settled && (
+                    <span className="tnum text-sm font-semibold">{settled}</span>
+                  )}
+                  <ChevronRight className="size-4 text-muted-foreground" />
+                </div>
               </Link>
             </li>
           );
