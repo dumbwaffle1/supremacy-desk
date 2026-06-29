@@ -70,7 +70,7 @@ export function Rules({ leagueId }: { leagueId: string }) {
       sup: 0,
       result: "1–1 after extra time, won on penalties (supremacy 0)",
       lesson:
-        "A shootout counts as a draw — they lift the cup, the trade still settles flat.",
+        "A shootout counts as a draw (supremacy 0) — England lift the cup, but you bought at 0.7, so the trade still loses.",
     },
   ];
 

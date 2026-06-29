@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useQuery } from "convex/react";
 import {
   CartesianGrid,
@@ -206,7 +207,11 @@ function UpNext({ leagueId }: { leagueId: Id<"leagues"> }) {
             const isLive = g.status === "LIVE";
             const toKo = g.koUtc ? g.koUtc - now : null;
             return (
-              <li key={g._id} className="px-4 py-3">
+              <li key={g._id}>
+                <Link
+                  href={`/l/${leagueId}/games/${g._id}`}
+                  className="block px-4 py-3 transition-colors hover:bg-secondary/40"
+                >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <span className="rounded bg-secondary px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
@@ -249,11 +254,74 @@ function UpNext({ leagueId }: { leagueId: Id<"leagues"> }) {
                     </span>
                   )}
                 </div>
+                </Link>
               </li>
             );
           })}
         </ul>
       )}
+    </div>
+  );
+}
+
+/* ── past games ───────────────────────────────────────────────────────── */
+
+function PastGames({ leagueId }: { leagueId: Id<"leagues"> }) {
+  const games = useQuery(api.games.list, { leagueId });
+
+  if (games === undefined) {
+    return <div className="panel h-40 animate-pulse rounded-2xl" />;
+  }
+
+  const past = games
+    .filter((g) => g.status === "SETTLED" || g.status === "VOID")
+    .sort((a, b) => (b.koUtc ?? 0) - (a.koUtc ?? 0));
+
+  if (past.length === 0) return null;
+
+  return (
+    <div className="panel overflow-hidden rounded-2xl">
+      <div className="px-4 py-3">
+        <h2 className="text-sm font-semibold">Past games</h2>
+      </div>
+      <ul className="divide-y divide-border">
+        {past.map((g) => {
+          const voided = g.status === "VOID";
+          const hasScore = g.settleHome !== null && g.settleAway !== null;
+          return (
+            <li key={g._id}>
+              <Link
+                href={`/l/${leagueId}/games/${g._id}`}
+                className="flex items-center justify-between px-4 py-3 transition-colors hover:bg-secondary/40"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="rounded bg-secondary px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    {STAGE_LABEL[g.stage as Stage]}
+                  </span>
+                  <span className="flex items-center gap-1.5 text-sm font-medium">
+                    <Flag name={g.home} />
+                    {g.home ?? "TBD"}
+                    <span className="text-muted-foreground">v</span>
+                    <Flag name={g.away} />
+                    {g.away ?? "TBD"}
+                  </span>
+                </div>
+                {voided ? (
+                  <span className="text-[11px] font-semibold uppercase text-muted-foreground">
+                    void
+                  </span>
+                ) : hasScore ? (
+                  <span className="tnum text-sm font-semibold">
+                    {g.settleHome}–{g.settleAway}
+                  </span>
+                ) : (
+                  <span className="text-[11px] text-muted-foreground">—</span>
+                )}
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }
@@ -271,6 +339,7 @@ export function Desk({ leagueId }: { leagueId: string }) {
       <EquityCurve leagueId={lid} />
       <Standings leagueId={lid} />
       <UpNext leagueId={lid} />
+      <PastGames leagueId={lid} />
     </div>
   );
 }

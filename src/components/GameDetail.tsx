@@ -88,7 +88,6 @@ export function GameDetail({
       </div>
 
       <ActionCard detail={d} />
-      {d.me.isAdmin && <AdminGameControls detail={d} />}
 
       {(d.takerOpen || d.makerOpen) && d.stillToTrade.length > 0 && (
         <div className="panel rounded-2xl p-4">
@@ -153,6 +152,8 @@ export function GameDetail({
           </ul>
         </div>
       )}
+
+      {d.me.isAdmin && <AdminGameControls detail={d} />}
     </div>
   );
 }
