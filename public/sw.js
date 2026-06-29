@@ -1,23 +1,24 @@
-// Supremacy service worker: push notifications + a minimal offline shell.
+// Supremacy service worker: push notifications only.
+//
+// IMPORTANT: we deliberately do NOT intercept navigations (no `fetch` handler).
+// A network-first navigation cache used to proxy page loads through the SW, but
+// browsers don't reliably apply `Set-Cookie` headers on responses returned via
+// respondWith — which silently dropped Convex Auth's refreshed session cookie
+// and logged people out. Letting navigations hit the network directly keeps the
+// auth cookie refresh working. The marginal offline shell isn't worth the bug.
 const CACHE = "supremacy-v1";
 
 self.addEventListener("install", () => self.skipWaiting());
-self.addEventListener("activate", (event) =>
-  event.waitUntil(self.clients.claim()),
-);
 
-// Network-first for navigations; fall back to the last cached page if offline.
-self.addEventListener("fetch", (event) => {
-  const req = event.request;
-  if (req.method !== "GET" || req.mode !== "navigate") return;
-  event.respondWith(
-    fetch(req)
-      .then((res) => {
-        const copy = res.clone();
-        caches.open(CACHE).then((c) => c.put(req, copy));
-        return res;
-      })
-      .catch(() => caches.match(req).then((r) => r || caches.match("/"))),
+self.addEventListener("activate", (event) => {
+  event.waitUntil(
+    (async () => {
+      // Drop the old navigation cache from the previous SW version.
+      for (const key of await caches.keys()) {
+        if (key === CACHE) await caches.delete(key);
+      }
+      await self.clients.claim();
+    })(),
   );
 });
 
