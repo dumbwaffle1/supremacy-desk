@@ -22,10 +22,57 @@ export function Rules({ leagueId }: { leagueId: string }) {
   });
   const width = league?.width ?? 0.2;
   const stakes = league?.stakes;
-  const stake = stakes?.R32 ?? 10;
   const r2 = (n: number) => Math.round(n * 100) / 100;
-  const buyWin = r2((2 - width) * stake);
-  const sellWin = r2(1 * stake);
+
+  type Ex = {
+    team: string;
+    stage: Stage;
+    side: "BUY" | "SELL";
+    bid: number;
+    sup: number;
+    result: string;
+    lesson: string;
+  };
+  const examples: Ex[] = [
+    {
+      team: "Brazil",
+      stage: "R32",
+      side: "BUY",
+      bid: 0,
+      sup: 2,
+      result: "Brazil win 3–1 (supremacy +2)",
+      lesson: "Bought a toss-up, they won comfortably — well past the price.",
+    },
+    {
+      team: "Spain",
+      stage: "R16",
+      side: "BUY",
+      bid: 1.0,
+      sup: 1,
+      result: "Spain win 1–0 (supremacy +1)",
+      lesson: "They won — but by less than you paid for, so the BUY still loses.",
+    },
+    {
+      team: "France",
+      stage: "QF",
+      side: "SELL",
+      bid: 2.9,
+      sup: 5,
+      result: "France win 5–0 (supremacy +5)",
+      lesson:
+        "Sold thinking 2.9 was too generous — they romped, so a SELL can lose more than the stake.",
+    },
+    {
+      team: "England",
+      stage: "F",
+      side: "BUY",
+      bid: 0.5,
+      sup: 0,
+      result: "1–1 after extra time, won on penalties (supremacy 0)",
+      lesson:
+        "A shootout counts as a draw — they lift the cup, the trade still settles flat.",
+    },
+  ];
 
   return (
     <div className="space-y-4">
@@ -62,26 +109,54 @@ export function Rules({ leagueId }: { leagueId: string }) {
         </p>
       </Section>
 
-      <Section title="Worked example">
-        <p>
-          France quoted <span className="tnum">0.0 / {width.toFixed(1)}</span>, R32 stake{" "}
-          <span className="tnum">£{stake}/goal</span>:
-        </p>
-        <ul className="space-y-1 text-xs">
-          <li>
-            <span className="text-up">BUY</span> @ {width.toFixed(1)} · France win 3–1
-            (supremacy +2) → (2 − {width.toFixed(1)}) × £{stake} ={" "}
-            <span className="tnum text-up">+£{buyWin}</span>
-          </li>
-          <li>
-            <span className="text-down">SELL</span> @ 0.0 · France lose 0–1 (supremacy
-            −1) → (0 − (−1)) × £{stake} ={" "}
-            <span className="tnum text-up">+£{sellWin}</span>
-          </li>
+      <Section title="Worked examples">
+        <ul className="space-y-2.5">
+          {examples.map((ex) => {
+            const stake = stakes?.[ex.stage] ?? 0;
+            const offer = r2(ex.bid + width);
+            const price = ex.side === "BUY" ? offer : ex.bid;
+            const pnl = r2(
+              ex.side === "BUY"
+                ? (ex.sup - offer) * stake
+                : (ex.bid - ex.sup) * stake,
+            );
+            const sign = pnl > 0 ? "+" : pnl < 0 ? "−" : "";
+            return (
+              <li key={ex.team} className="rounded-lg bg-secondary/50 p-3">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-foreground">
+                    {ex.team} · {STAGE_LABEL[ex.stage]}
+                  </span>
+                  <span className="tnum text-muted-foreground">
+                    quoted {ex.bid.toFixed(1)} / {offer.toFixed(1)} · £{stake}
+                  </span>
+                </div>
+                <div className="mt-1.5 text-xs">
+                  <span
+                    className={
+                      ex.side === "BUY"
+                        ? "font-semibold text-up"
+                        : "font-semibold text-down"
+                    }
+                  >
+                    {ex.side}
+                  </span>{" "}
+                  @ {price.toFixed(1)} · {ex.result} →{" "}
+                  <span
+                    className={`tnum ${pnl > 0 ? "text-up" : pnl < 0 ? "text-down" : ""}`}
+                  >
+                    {sign}£{Math.abs(pnl)}
+                  </span>
+                </div>
+                <p className="mt-1 text-[11px]">{ex.lesson}</p>
+              </li>
+            );
+          })}
         </ul>
         <p className="text-[11px]">
-          The final score is known at settlement, so each payout is a fixed £ amount —
-          the stake is just the £-per-goal multiplier.
+          The final score is known at settlement, so every payout is a fixed £
+          amount — the further the result lands past your price, the bigger the
+          swing (either way).
         </p>
       </Section>
 
