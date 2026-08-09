@@ -1,28 +1,17 @@
 import { cronJobs } from "convex/server";
-import { internal } from "./_generated/api";
 
 const crons = cronJobs();
 
-// Re-sync the fixture LIST twice a day to fill TBD teams / kickoff times as
-// rounds resolve — well within the 100/day free quota. Live in-play scores and
-// auto-settlement are a separate, more frequent cron added in Prompt 7.
-crons.cron("sync fixtures (am)", "0 6 * * *", internal.fixtures.sync, {});
-crons.cron("sync fixtures (pm)", "0 18 * * *", internal.fixtures.sync, {});
-
-// Apply deadline penalties (default maker rate, forced longs) near kick-offs.
-// Server-side window locks in the mutations are the real guard; this just
-// materialises the penalty rows. Every 5 minutes is plenty.
-crons.interval("deadline penalties", { minutes: 5 }, internal.trades.applyDeadlinePenalties, {});
-
-// Live scores + fully automatic settlement (spec §3, §8). One call per tick
-// (only when a game is in the in-play/finished window); settles after two
-// consecutive identical final polls.
-crons.interval("poll scores", { minutes: 10 }, internal.settlement.pollScores, {});
-
-// Reminder pushes: maker "rate due" + taker "trade closes" near kick-offs.
-crons.interval("reminders", { minutes: 5 }, internal.reminders.tick, {});
-
-// Keep QF/SF/3PO/F makers in sync with standings (bottom 4 / top 4).
-crons.interval("auto makers", { minutes: 15 }, internal.leagues.autoMakers, {});
+// WC2026 is over — all recurring jobs are retired so the deployment makes no
+// background function calls. The app stays fully readable (standings, ledger,
+// feed); nothing needs to run on a schedule between tournaments.
+//
+// To revive for a future tournament, restore from git history (this file at
+// commit cc107ad or earlier):
+//   - sync fixtures (am/pm)      internal.fixtures.sync           2x/day
+//   - deadline penalties         internal.trades.applyDeadlinePenalties  5 min
+//   - poll scores                internal.settlement.pollScores   10 min
+//   - reminders                  internal.reminders.tick          5 min
+//   - auto makers                internal.leagues.autoMakers      15 min
 
 export default crons;
