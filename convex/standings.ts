@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { query, QueryCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { round2 } from "./lib/game";
+import { leagueViewer } from "./lib/access";
 
 async function settledWithTrades(ctx: QueryCtx, leagueId: Id<"leagues">) {
   const settled = (
@@ -66,6 +67,7 @@ export async function pnlMap(
 export const standings = query({
   args: { leagueId: v.id("leagues") },
   handler: async (ctx, { leagueId }) => {
+    if (!(await leagueViewer(ctx, leagueId))) return { rows: [], settledCount: 0 };
     const { cum, settledCount } = await pnlMap(ctx, leagueId);
     const rows = [...cum.entries()]
       .map(([player, pnl]) => ({ player, pnl: round2(pnl) }))
@@ -77,6 +79,9 @@ export const standings = query({
 export const equityCurve = query({
   args: { leagueId: v.id("leagues") },
   handler: async (ctx, { leagueId }) => {
+    if (!(await leagueViewer(ctx, leagueId))) {
+      return { players: [], points: [], settledCount: 0 };
+    }
     const roster = (
       await ctx.db
         .query("players")

@@ -3,11 +3,22 @@ import { mutation, query } from "./_generated/server";
 import { pnlMap } from "./standings";
 import { roundedBalances, minimalTransfers } from "./lib/ledger";
 import { requireLeagueAdmin } from "./leagues";
+import { leagueViewer } from "./lib/access";
 import { STAGES } from "../src/config/constants";
 
 export const ledger = query({
   args: { leagueId: v.id("leagues") },
   handler: async (ctx, { leagueId }) => {
+    if (!(await leagueViewer(ctx, leagueId))) {
+      return {
+        balances: [],
+        transfers: [],
+        settledCount: 0,
+        zeroSum: true,
+        stageBreakdown: [],
+        snapshot: null,
+      };
+    }
     const { cum, settledCount } = await pnlMap(ctx, leagueId);
     const balances = roundedBalances(cum).sort(
       (a, b) => b.net - a.net || a.player.localeCompare(b.player),

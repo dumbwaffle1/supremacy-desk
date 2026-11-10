@@ -333,13 +333,16 @@ export const get = query({
       isMember = !!m || isOwner || !!p;
     }
     const isAdmin = isOwner || isSuperAdmin;
+    // Outsiders only learn that the league exists (the gate needs that to say
+    // "You're not in this Supremacy"): no name, and the default stakes.
+    const canView = isMember || isSuperAdmin;
 
     return {
       _id: league._id,
-      name: league.name,
+      name: canView ? league.name : "",
       tournament: league.tournament,
       width: league.width,
-      stakes: await getStakes(ctx, leagueId),
+      stakes: await getStakes(ctx, canView ? leagueId : undefined),
       inviteCode: isMember || isSuperAdmin ? league.inviteCode : null,
       me: { player, isOwner, isAdmin, isMember, isSuperAdmin },
     };

@@ -269,12 +269,13 @@ describe("admin + settlement", () => {
       away: 1,
     });
 
-    const st = await t.query(api.standings.standings, { leagueId: lid });
+    // Standings are for the league's people only, so read them as the owner.
+    const st = await asUser(t, owner).query(api.standings.standings, { leagueId: lid });
     expect(st.rows.find((r) => r.player === "Yas")?.pnl).toBeCloseTo(3);
     expect(st.rows.find((r) => r.player === "Pascal")?.pnl).toBeCloseTo(-3);
 
     await asUser(t, owner).mutation(api.settlement.voidGame, { gameId: game });
-    const st2 = await t.query(api.standings.standings, { leagueId: lid });
+    const st2 = await asUser(t, owner).query(api.standings.standings, { leagueId: lid });
     expect(st2.settledCount).toBe(0);
   });
 

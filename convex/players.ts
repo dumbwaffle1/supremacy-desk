@@ -1,10 +1,12 @@
 import { v } from "convex/values";
 import { query } from "./_generated/server";
+import { leagueViewer } from "./lib/access";
 
 /** Roster for a league, with claim status. */
 export const list = query({
   args: { leagueId: v.id("leagues") },
   handler: async (ctx, { leagueId }) => {
+    if (!(await leagueViewer(ctx, leagueId))) return [];
     const players = await ctx.db
       .query("players")
       .withIndex("by_league", (q) => q.eq("leagueId", leagueId))

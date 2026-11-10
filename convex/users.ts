@@ -4,6 +4,9 @@ import type { Id } from "./_generated/dataModel";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { rebalanceMakers, requireLeagueAdmin } from "./leagues";
 import { ADMIN_EMAIL } from "../src/config/constants";
+import { leagueViewer } from "./lib/access";
+
+const JOIN_FIRST = "Join this Supremacy with its invite link first.";
 
 /** The signed-in user (global identity). Per-league seat/role comes from
  *  leagues.get. null when signed out. */
@@ -46,6 +49,7 @@ export const claimPlayer = mutation({
   handler: async (ctx, { leagueId, playerId }) => {
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("Sign in first.");
+    if (!(await leagueViewer(ctx, leagueId))) throw new Error(JOIN_FIRST);
 
     const already = await ctx.db
       .query("players")
@@ -72,6 +76,7 @@ export const addAndClaimPlayer = mutation({
   handler: async (ctx, { leagueId, name }) => {
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("Sign in first.");
+    if (!(await leagueViewer(ctx, leagueId))) throw new Error(JOIN_FIRST);
     const trimmed = name.trim();
     if (trimmed.length < 1) throw new Error("Enter a name.");
     if (trimmed.length > 24) throw new Error("Keep the name under 24 characters.");

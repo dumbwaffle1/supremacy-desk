@@ -5,11 +5,13 @@ import { offerFor, round2, teamSupremacy, tradePnl } from "./lib/game";
 import { getStakes } from "./tournament";
 import { makerWindowOpen, takerWindowOpen } from "./lib/trading";
 import { ADMIN_EMAIL } from "../src/config/constants";
+import { leagueViewer } from "./lib/access";
 
 /** A league's games with derived offer + stake, ordered by gameNo. */
 export const list = query({
   args: { leagueId: v.id("leagues") },
   handler: async (ctx, { leagueId }) => {
+    if (!(await leagueViewer(ctx, leagueId))) return [];
     const games = await ctx.db
       .query("games")
       .withIndex("by_league", (q) => q.eq("leagueId", leagueId))
@@ -50,6 +52,7 @@ export const detail = query({
     const game = await ctx.db.get(gameId);
     if (!game || !game.leagueId) return null;
     const leagueId = game.leagueId;
+    if (!(await leagueViewer(ctx, leagueId))) return null;
 
     const now = Date.now();
     const offer = game.bid !== undefined ? offerFor(game.bid) : null;

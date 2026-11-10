@@ -4,6 +4,7 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 import type { Id } from "./_generated/dataModel";
 import { ADMIN_EMAIL } from "../src/config/constants";
 import { offerFor } from "./lib/game";
+import { leagueViewer } from "./lib/access";
 
 /** A feed row to insert. Auto-posted (rate/trade) or user chat. */
 export type FeedEntry = {
@@ -61,6 +62,7 @@ async function canParticipate(
 export const list = query({
   args: { leagueId: v.id("leagues") },
   handler: async (ctx, { leagueId }) => {
+    if (!(await leagueViewer(ctx, leagueId))) return [];
     const rows = await ctx.db
       .query("feed")
       .withIndex("by_league", (q) => q.eq("leagueId", leagueId))
@@ -109,7 +111,7 @@ export const post = mutation({
 export const markSeen = mutation({
   args: { leagueId: v.id("leagues") },
   handler: async (ctx, { leagueId }) => {
-    const userId = await getAuthUserId(ctx);
+    const userId = await leagueViewer(ctx, leagueId);
     if (!userId) return;
     const existing = await ctx.db
       .query("feedReads")
@@ -127,7 +129,7 @@ export const markSeen = mutation({
 export const unreadCount = query({
   args: { leagueId: v.id("leagues") },
   handler: async (ctx, { leagueId }) => {
-    const userId = await getAuthUserId(ctx);
+    const userId = await leagueViewer(ctx, leagueId);
     if (!userId) return 0;
     const read = await ctx.db
       .query("feedReads")

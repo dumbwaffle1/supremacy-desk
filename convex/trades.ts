@@ -10,6 +10,7 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 import { internal } from "./_generated/api";
 import { ADMIN_EMAIL } from "../src/config/constants";
 import { postFeed } from "./feed";
+import { leagueViewer } from "./lib/access";
 import { offerFor, round2 } from "./lib/game";
 import { getStakes, stakeOf } from "./tournament";
 import {
@@ -291,6 +292,8 @@ export const fixMakerTrades = internalMutation({
 export const forGame = query({
   args: { gameId: v.id("games") },
   handler: async (ctx, { gameId }) => {
+    const game = await ctx.db.get(gameId);
+    if (!game?.leagueId || !(await leagueViewer(ctx, game.leagueId))) return [];
     return await ctx.db
       .query("trades")
       .withIndex("by_game", (q) => q.eq("gameId", gameId))
