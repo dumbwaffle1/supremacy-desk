@@ -19,6 +19,7 @@ import type * as games from "../games.js";
 import type * as http from "../http.js";
 import type * as leagues from "../leagues.js";
 import type * as ledger from "../ledger.js";
+import type * as lib_access from "../lib/access.js";
 import type * as lib_game from "../lib/game.js";
 import type * as lib_invite from "../lib/invite.js";
 import type * as lib_ledger from "../lib/ledger.js";
@@ -52,6 +53,7 @@ declare const fullApi: ApiFromModules<{
   http: typeof http;
   leagues: typeof leagues;
   ledger: typeof ledger;
+  "lib/access": typeof lib_access;
   "lib/game": typeof lib_game;
   "lib/invite": typeof lib_invite;
   "lib/ledger": typeof lib_ledger;
